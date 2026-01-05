@@ -1,10 +1,14 @@
+// next.config.ts
+import type { NextConfig } from 'next';
+
+// @ts-ignore - next-pwa doesn't have TypeScript definitions
 import withPWAInit from 'next-pwa';
 
 const withPWA = withPWAInit({
   dest: 'public',
-  register: false, // Manual registration for more control
+  disable: process.env.NODE_ENV === 'development',
+  register: true, // Changed to true for auto-registration
   skipWaiting: true,
-  disable: false,
   sw: 'sw.js',
   scope: '/',
   runtimeCaching: [
@@ -19,6 +23,20 @@ const withPWA = withPWAInit({
   ]
 });
 
-export default withPWA({
-  reactStrictMode: true
+const nextConfig: NextConfig = withPWA({
+  reactStrictMode: true,
+  images: {
+    domains: ['firebasestorage.googleapis.com'],
+  },
+  webpack: (config: any) => {
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      net: false,
+      tls: false,
+    };
+    return config;
+  },
 });
+
+export default nextConfig;
