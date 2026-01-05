@@ -98,15 +98,15 @@ export default function InstallPWA() {
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 bg-white rounded-lg p-2 flex-shrink-0">
             <img 
-              src="/icon-192x192.png" 
+              src="/lg192.png" 
               alt="App Icon" 
               className="w-full h-full object-contain"
             />
           </div>
           <div>
-            <h3 className="font-bold text-lg">Install Our App</h3>
+            <h3 className="font-bold text-lg">Install Weekend Playzz</h3>
             <p className="text-sm text-red-100">
-              Get quick access and work offline
+              Turf Management App
             </p>
           </div>
         </div>
