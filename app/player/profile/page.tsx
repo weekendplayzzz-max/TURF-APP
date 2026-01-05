@@ -162,7 +162,8 @@ export default function PlayerInfo() {
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-2">Member Since</label>
                   <p className="text-sm text-gray-900 py-2 sm:py-2.5">
-                    {new Date(user.metadata?.creationTime || Date.now()).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                   {new Date((user as any)?.metadata?.creationTime || Date.now()).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+
                   </p>
                 </div>
               </div>

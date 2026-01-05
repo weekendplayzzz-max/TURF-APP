@@ -14,7 +14,7 @@ import {
   orderBy,
   runTransaction,
 } from 'firebase/firestore';
-import { calculatePerPlayerAmount, calculateTeamFund } from '@/lib/eventManagement';
+import { calculatePerPlayerAmount } from '@/lib/eventManagement';
 
 interface Event {
   id: string;
