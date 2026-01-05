@@ -16,34 +16,8 @@ import {
   updateEventTotalCollected,
 } from '@/lib/eventManagement';
 
-interface EventEditHistory {
-  action: 'title_updated' | 'amount_updated' | 'duration_updated' | 'player_added' | 'date_updated' | 'time_updated' | 'deadline_extended';
-  oldValue: string | number;
-  newValue: string | number;
-  editedBy: string;
-  editedByRole: string;
-  editedAt: Timestamp;
-  recalculationTriggered: boolean;
-}
-
-interface Event {
-  id: string;
-  title: string;
-  date: Timestamp;
-  time: string;
-  totalAmount: number;
-  durationHours: number;
-  deadline: Timestamp;
-  status: 'open' | 'closed' | 'locked';
-  participantCount: number;
-  totalCollected: number;
-  eventPaidToVendor: boolean;
-  createdBy: string;
-  createdByRole: string;
-  createdAt: Timestamp;
-  editHistory?: EventEditHistory[];
-  liveParticipantCount?: number;
-}
+// Import shared types instead of defining them here
+import type { Event, EventEditHistory } from '@/lib/eventManagement';
 
 export default function ManageEvents() {
   const { role, loading, user } = useAuth();
@@ -85,18 +59,15 @@ export default function ManageEvents() {
     try {
       setLoadingData(true);
       await checkAndAutoCloseEvents();
-
       const eventsRef = collection(db, 'events');
       const eventsQuery = query(eventsRef, orderBy('date', 'desc'));
       const eventsSnapshot = await getDocs(eventsQuery);
-
       const participantCounts = await fetchParticipantCounts();
-
+      
       const eventsList: Event[] = [];
       eventsSnapshot.forEach((docSnap) => {
         const data = docSnap.data();
         const eventId = docSnap.id;
-        
         const liveCount = participantCounts[eventId] || 0;
         
         eventsList.push({
@@ -112,13 +83,15 @@ export default function ManageEvents() {
           liveParticipantCount: liveCount,
           totalCollected: data.totalCollected || 0,
           eventPaidToVendor: data.eventPaidToVendor || false,
+          eventPaidAt: data.eventPaidAt || null,
+          eventPaidBy: data.eventPaidBy || null,
           createdBy: data.createdBy,
           createdByRole: data.createdByRole,
           createdAt: data.createdAt,
           editHistory: data.editHistory || [],
         });
       });
-
+      
       setEvents(eventsList);
       applyFilter(eventsList, filter);
     } catch (error) {

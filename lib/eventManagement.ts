@@ -12,9 +12,8 @@ import {
   query,
   where
 } from 'firebase/firestore';
-
-interface EventEditHistory {
-  action: 'title_updated' | 'amount_updated' | 'duration_updated' | 'player_added';
+export interface EventEditHistory {
+  action: 'title_updated' | 'amount_updated' | 'duration_updated' | 'player_added' | 'date_updated' | 'time_updated' | 'deadline_extended';
   oldValue: string | number;
   newValue: string | number;
   editedBy: string;
@@ -23,7 +22,7 @@ interface EventEditHistory {
   recalculationTriggered: boolean;
 }
 
-interface Event {
+export interface Event {
   id: string;
   title: string;
   date: Timestamp;
@@ -33,15 +32,18 @@ interface Event {
   deadline: Timestamp;
   status: 'open' | 'closed' | 'locked';
   participantCount: number;
-  totalCollected: number; // NEW: Real money collected
-  eventPaidToVendor: boolean; // NEW: Payment status to turf
-  eventPaidAt: Timestamp | null; // NEW: When paid to vendor
-  eventPaidBy: string | null; // NEW: Who paid vendor
+  totalCollected: number;
+  eventPaidToVendor: boolean;
+  eventPaidAt: Timestamp | null;
+  eventPaidBy: string | null;
   createdBy: string;
   createdByRole: string;
   createdAt: Timestamp;
   editHistory?: EventEditHistory[];
+  liveParticipantCount?: number;
 }
+
+
 
 interface Expense {
   id: string;
@@ -205,6 +207,8 @@ export async function closeEventHelper(eventId: string, events: Event[]) {
     originalParticipantCount: count,
     totalCollected: 0,
     eventPaidToVendor: false,
+    eventPaidAt: null,
+    eventPaidBy: null,
   });
 
   await createEventPayments(eventId, event, count);

@@ -378,9 +378,7 @@ export default function superadminEvents() {
                 ? calculatePerPlayerAmount(event.totalAmount, event.participantCount)
                 : 0;
 
-              const displayTeamFund = event.status !== 'open' && event.participantCount > 0
-                ? calculateTeamFund(perPlayerAmount, event.participantCount, event.totalAmount)
-                : 0;
+            
 
               const statusColor =
                 event.status === 'open'
@@ -456,10 +454,7 @@ export default function superadminEvents() {
                             ₹{(perPlayerAmount * event.participantCount).toLocaleString()}
                           </p>
                         </div>
-                        <div>
-                          <p className="text-xs text-gray-600">Team Fund</p>
-                          <p className="text-xl font-bold text-orange-600">₹{displayTeamFund}</p>
-                        </div>
+                       
                       </div>
                     )}
                   </div>
