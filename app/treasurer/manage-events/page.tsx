@@ -16,37 +16,8 @@ import {
   updateEventTotalCollected,
 } from '@/lib/eventManagement';
 
-
-interface EventEditHistory {
-  action: 'title_updated' | 'amount_updated' | 'duration_updated' | 'player_added';
-  oldValue: string | number;
-  newValue: string | number;
-  editedBy: string;
-  editedByRole: string;
-  editedAt: Timestamp;
-  recalculationTriggered: boolean;
-}
-
-
-interface Event {
-  id: string;
-  title: string;
-  date: Timestamp;
-  time: string;
-  totalAmount: number;
-  durationHours: number;
-  deadline: Timestamp;
-  status: 'open' | 'closed' | 'locked';
-  participantCount: number;
-  totalCollected: number;
-  eventPaidToVendor: boolean;
-  createdBy: string;
-  createdByRole: string;
-  createdAt: Timestamp;
-  editHistory?: EventEditHistory[];
-  liveParticipantCount?: number;
-}
-
+// Import shared types instead of defining them here
+import type { Event, EventEditHistory } from '@/lib/eventManagement';
 
 export default function ManageEvents() {
   const { role, loading, user } = useAuth();
@@ -113,6 +84,8 @@ export default function ManageEvents() {
           liveParticipantCount: liveCount,
           totalCollected: data.totalCollected || 0,
           eventPaidToVendor: data.eventPaidToVendor || false,
+          eventPaidAt: data.eventPaidAt || null,  // ← ADDED
+          eventPaidBy: data.eventPaidBy || null,  // ← ADDED
           createdBy: data.createdBy,
           createdByRole: data.createdByRole,
           createdAt: data.createdAt,
@@ -254,61 +227,58 @@ export default function ManageEvents() {
     setShowDeleteDialog(true);
   };
 
-
   const confirmDelete = async () => {
-  if (!eventToDelete) return;
+    if (!eventToDelete) return;
 
-  try {
-    setDeletingEvent(true);
-    setShowDeleteDialog(false);
+    try {
+      setDeletingEvent(true);
+      setShowDeleteDialog(false);
 
-    // Delete all event participants
-    const participantsRef = collection(db, 'eventParticipants');
-    const participantsQuery = query(participantsRef, where('eventId', '==', eventToDelete.id));
-    const participantsSnapshot = await getDocs(participantsQuery);
-    
-    const participantDeletePromises = participantsSnapshot.docs.map((docSnap) => 
-      deleteDoc(doc(db, 'eventParticipants', docSnap.id))
-    );
-    await Promise.all(participantDeletePromises);
+      // Delete all event participants
+      const participantsRef = collection(db, 'eventParticipants');
+      const participantsQuery = query(participantsRef, where('eventId', '==', eventToDelete.id));
+      const participantsSnapshot = await getDocs(participantsQuery);
+      
+      const participantDeletePromises = participantsSnapshot.docs.map((docSnap) => 
+        deleteDoc(doc(db, 'eventParticipants', docSnap.id))
+      );
+      await Promise.all(participantDeletePromises);
 
-    // Delete all event expenses (eventExpenses collection)
-    const eventExpensesRef = collection(db, 'eventExpenses');
-    const eventExpensesQuery = query(eventExpensesRef, where('eventId', '==', eventToDelete.id));
-    const eventExpensesSnapshot = await getDocs(eventExpensesQuery);
-    
-    const eventExpenseDeletePromises = eventExpensesSnapshot.docs.map((docSnap) => 
-      deleteDoc(doc(db, 'eventExpenses', docSnap.id))
-    );
-    await Promise.all(eventExpenseDeletePromises);
+      // Delete all event expenses (eventExpenses collection)
+      const eventExpensesRef = collection(db, 'eventExpenses');
+      const eventExpensesQuery = query(eventExpensesRef, where('eventId', '==', eventToDelete.id));
+      const eventExpensesSnapshot = await getDocs(eventExpensesQuery);
+      
+      const eventExpenseDeletePromises = eventExpensesSnapshot.docs.map((docSnap) => 
+        deleteDoc(doc(db, 'eventExpenses', docSnap.id))
+      );
+      await Promise.all(eventExpenseDeletePromises);
 
-    // Delete from expenses collection (where expense is related to this event payment)
-    const expensesRef = collection(db, 'expenses');
-    const expensesQuery = query(expensesRef, where('eventId', '==', eventToDelete.id));
-    const expensesSnapshot = await getDocs(expensesQuery);
-    
-    const expenseDeletePromises = expensesSnapshot.docs.map((docSnap) => 
-      deleteDoc(doc(db, 'expenses', docSnap.id))
-    );
-    await Promise.all(expenseDeletePromises);
+      // Delete from expenses collection (where expense is related to this event payment)
+      const expensesRef = collection(db, 'expenses');
+      const expensesQuery = query(expensesRef, where('eventId', '==', eventToDelete.id));
+      const expensesSnapshot = await getDocs(expensesQuery);
+      
+      const expenseDeletePromises = expensesSnapshot.docs.map((docSnap) => 
+        deleteDoc(doc(db, 'expenses', docSnap.id))
+      );
+      await Promise.all(expenseDeletePromises);
 
-    // Delete the event itself
-    await deleteDoc(doc(db, 'events', eventToDelete.id));
+      // Delete the event itself
+      await deleteDoc(doc(db, 'events', eventToDelete.id));
 
-    setSuccessMessage(`Event "${eventToDelete.title}" and all its data deleted successfully!`);
-    setShowSuccessDialog(true);
-    await fetchEvents();
-  } catch (error) {
-    console.error('Error deleting event:', error);
-    setMessage('Failed to delete event');
-    setTimeout(() => setMessage(''), 3000);
-  } finally {
-    setEventToDelete(null);
-    setDeletingEvent(false);
-  }
-};
-
-
+      setSuccessMessage(`Event "${eventToDelete.title}" and all its data deleted successfully!`);
+      setShowSuccessDialog(true);
+      await fetchEvents();
+    } catch (error) {
+      console.error('Error deleting event:', error);
+      setMessage('Failed to delete event');
+      setTimeout(() => setMessage(''), 3000);
+    } finally {
+      setEventToDelete(null);
+      setDeletingEvent(false);
+    }
+  };
 
   const openEditModal = (event: Event) => {
     if (event.status === 'locked') {
@@ -410,7 +380,9 @@ export default function ManageEvents() {
     router.push(`/treasurer/event-participants/${eventId}`);
   };
 
-
+  // ... REST OF YOUR JSX CODE STAYS EXACTLY THE SAME ...
+  // The complete JSX from your file continues here unchanged
+  
   if (loading || !user || role !== 'treasurer') {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -426,7 +398,7 @@ export default function ManageEvents() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+   <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
