@@ -4,13 +4,19 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter, useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, doc, getDoc , Timestamp } from 'firebase/firestore';
+import Image from 'next/image';
+import { collection, getDocs, doc, getDoc, Timestamp } from 'firebase/firestore';
 
 interface Participant {
   id: string;
   playerId: string;
   playerName: string;
   playerEmail: string;
+  playerType?: 'regular' | 'guest';
+  playerRole?: string;
+  playerStatus?: string;
+  parentId?: string;
+  parentName?: string;
   joinedAt: Timestamp;
 }
 
@@ -19,6 +25,7 @@ interface Event {
   date: Timestamp;
   time: string;
   status: string;
+  participantCount: number;
 }
 
 export default function EventParticipants() {
@@ -56,6 +63,7 @@ export default function EventParticipants() {
           date: eventData.date,
           time: eventData.time,
           status: eventData.status,
+          participantCount: eventData.participantCount || 0,
         });
       }
 
@@ -72,6 +80,11 @@ export default function EventParticipants() {
             playerId: data.playerId,
             playerName: data.playerName,
             playerEmail: data.playerEmail,
+            playerType: data.playerType || 'regular',
+            playerRole: data.playerRole,
+            playerStatus: data.playerStatus,
+            parentId: data.parentId,
+            parentName: data.parentName,
             joinedAt: data.joinedAt,
           });
         }
@@ -91,126 +104,252 @@ export default function EventParticipants() {
   };
 
   if (loading || !user || role !== 'secretary') {
-    return null;
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center">
+          <div className="relative w-16 h-16 mx-auto mb-4">
+            <div className="absolute inset-0 border-4 border-red-600/20 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+          <p className="text-base text-gray-700 font-medium">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
+  // Helper function to get role/type badge
+  const getParticipantBadge = (participant: Participant) => {
+    if (participant.playerType === 'guest') {
+      return (
+        <span className="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 text-xs font-bold rounded-full">
+          Guest
+        </span>
+      );
+    }
+
+    const roleConfig: { [key: string]: { color: string; label: string } } = {
+      'secretary': { color: 'bg-orange-50 text-orange-700 border-orange-200', label: 'Secretary' },
+      'treasurer': { color: 'bg-green-50 text-green-700 border-green-200', label: 'Treasurer' },
+      'player': { color: 'bg-blue-50 text-blue-700 border-blue-200', label: 'Player' },
+    };
+
+    const config = roleConfig[participant.playerRole || 'player'] || roleConfig['player'];
+
+    return (
+      <span className={`px-2 py-0.5 border text-xs font-bold rounded-full ${config.color}`}>
+        {config.label}
+      </span>
+    );
+  };
+
+  // Count participants by type
+  const regularCount = participants.filter(p => p.playerType === 'regular').length;
+  const guestCount = participants.filter(p => p.playerType === 'guest').length;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-purple-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Header */}
-      <div className="bg-gradient-to-r from-purple-600 to-purple-800 text-white shadow-xl">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-4xl font-bold mb-2">👥 Event Participants</h1>
-              {event && (
-                <p className="text-purple-100 text-base">
-                  {event.title} • {event.date?.toDate().toLocaleDateString('en-IN')} • {event.time}
-                </p>
-              )}
+      <div className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+              <button
+                onClick={() => router.back()}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer flex-shrink-0"
+                title="Go Back"
+              >
+                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+              </button>
+              <div className="w-9 h-9 sm:w-12 sm:h-12 flex-shrink-0">
+                <Image
+                  src="/logo.png"
+                  alt="Art of War Logo"
+                  width={48}
+                  height={48}
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-base sm:text-xl md:text-2xl font-bold text-gray-900">
+                  Event Participants
+                </h1>
+                {event && (
+                  <p className="text-xs sm:text-sm text-gray-600 truncate">
+                    {event.title} • {event.date?.toDate().toLocaleDateString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric'
+                    })} • {event.time}
+                  </p>
+                )}
+              </div>
             </div>
-            <button
-              onClick={() => router.back()}
-              className="px-6 py-3 bg-white text-purple-600 font-bold rounded-lg hover:bg-purple-50 transition shadow-md"
-            >
-              ← Back
-            </button>
           </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 py-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 md:py-10">
         {loadingData ? (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-16 w-16 border-4 border-purple-600 border-t-transparent mx-auto mb-4"></div>
-              <p className="text-gray-600 text-lg font-medium">Loading participants...</p>
+              <div className="relative w-16 h-16 mx-auto mb-4">
+                <div className="absolute inset-0 border-4 border-red-600/20 rounded-full"></div>
+                <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+              <p className="text-base text-gray-700 font-medium">Loading participants...</p>
             </div>
           </div>
         ) : (
           <>
             {/* Summary Card */}
-            <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-200">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="text-center">
-                  <p className="text-gray-600 text-sm font-medium mb-2">Total Participants</p>
-                  <p className="text-4xl font-bold text-purple-600">{participants.length}</p>
+            <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-4 sm:p-6 mb-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-blue-50 rounded-xl p-3 sm:p-4">
+                  <p className="text-xs text-gray-600 mb-1">Total Participants</p>
+                  <p className="text-xl sm:text-2xl font-bold text-blue-600">
+                    {participants.length}
+                  </p>
                 </div>
-                <div className="text-center">
-                  <p className="text-gray-600 text-sm font-medium mb-2">Event Status</p>
-                  <span
-                    className={`inline-block px-6 py-2 rounded-full text-lg font-bold ${
-                      event?.status === 'open'
-                        ? 'bg-green-100 text-green-800'
-                        : event?.status === 'closed'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}
-                  >
+                <div className="bg-purple-50 rounded-xl p-3 sm:p-4">
+                  <p className="text-xs text-gray-600 mb-1">Users</p>
+                  <p className="text-xl sm:text-2xl font-bold text-purple-600">
+                    {regularCount}
+                  </p>
+                </div>
+                <div className="bg-green-50 rounded-xl p-3 sm:p-4">
+                  <p className="text-xs text-gray-600 mb-1">Guests</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">
+                    {guestCount}
+                  </p>
+                </div>
+                <div className="bg-red-50 rounded-xl p-3 sm:p-4">
+                  <p className="text-xs text-gray-600 mb-1">Event Status</p>
+                  <span className={`inline-block px-3 py-1 rounded-lg text-xs font-bold border ${
+                    event?.status === 'open'
+                      ? 'bg-green-50 text-green-700 border-green-200'
+                      : event?.status === 'closed'
+                      ? 'bg-red-50 text-red-700 border-red-200'
+                      : 'bg-gray-100 text-gray-700 border-gray-200'
+                  }`}>
                     {event?.status?.toUpperCase()}
                   </span>
-                </div>
-                <div className="text-center">
-                  <p className="text-gray-600 text-sm font-medium mb-2">Event Date</p>
-                  <p className="text-xl font-bold text-gray-800">
-                    {event?.date?.toDate().toLocaleDateString('en-IN', {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  </p>
                 </div>
               </div>
             </div>
 
             {/* Participants List */}
             {participants.length === 0 ? (
-              <div className="bg-white p-12 rounded-xl text-center shadow-lg border border-gray-200">
-                <div className="text-6xl mb-4">👥</div>
-                <p className="text-xl text-gray-600 font-semibold">No participants yet</p>
-                <p className="text-gray-500 mt-2">
+              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8 sm:p-12 text-center">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                  <svg className="w-8 h-8 sm:w-10 sm:h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <p className="text-lg sm:text-xl font-bold text-gray-900 mb-2">No participants yet</p>
+                <p className="text-sm sm:text-base text-gray-600">
                   {event?.status === 'open'
                     ? 'Players can join this event until the deadline'
                     : 'No players joined this event'}
                 </p>
               </div>
             ) : (
-              <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-                <div className="overflow-x-auto">
+              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+                {/* Mobile View - Cards */}
+                <div className="block md:hidden divide-y divide-gray-200">
+                  {participants.map((participant, index) => (
+                    <div key={participant.id} className="p-4 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="w-10 h-10 bg-red-600 text-white rounded-full flex items-center justify-center font-bold flex-shrink-0">
+                            {index + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-gray-900 truncate">
+                              {participant.playerName}
+                            </p>
+                            <p className="text-xs text-gray-600 truncate">
+                              {participant.playerType === 'guest' 
+                                ? `Managed by ${participant.parentName || 'Unknown'}`
+                                : participant.playerEmail}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        {getParticipantBadge(participant)}
+                        {participant.playerStatus && (
+                          <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${
+                            participant.playerStatus === 'Active'
+                              ? 'bg-green-50 text-green-700 border border-green-200'
+                              : 'bg-orange-50 text-orange-700 border border-orange-200'
+                          }`}>
+                            {participant.playerStatus}
+                          </span>
+                        )}
+                        <span className="text-xs text-gray-500 ml-auto">
+                          {participant.joinedAt?.toDate().toLocaleDateString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop View - Table */}
+                <div className="hidden md:block overflow-x-auto">
                   <table className="w-full">
-                    <thead className="bg-purple-600 text-white">
+                    <thead className="bg-red-600 text-white">
                       <tr>
-                        <th className="px-6 py-4 text-left text-sm font-bold uppercase">#</th>
-                        <th className="px-6 py-4 text-left text-sm font-bold uppercase">
-                          Player Name
-                        </th>
-                        <th className="px-6 py-4 text-left text-sm font-bold uppercase">Email</th>
-                        <th className="px-6 py-4 text-left text-sm font-bold uppercase">
-                          Joined On
-                        </th>
+                        <th className="px-4 py-3 text-left text-sm font-bold">#</th>
+                        <th className="px-4 py-3 text-left text-sm font-bold">Participant</th>
+                        <th className="px-4 py-3 text-left text-sm font-bold">Contact / Parent</th>
+                        <th className="px-4 py-3 text-center text-sm font-bold">Type</th>
+                        <th className="px-4 py-3 text-center text-sm font-bold">Status</th>
+                        <th className="px-4 py-3 text-left text-sm font-bold">Joined On</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {participants.map((participant, index) => (
-                        <tr
-                          key={participant.id}
-                          className="hover:bg-purple-50 transition"
-                        >
-                          <td className="px-6 py-4 text-gray-900 font-semibold">
-                            {index + 1}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center">
-                              <div className="w-10 h-10 bg-purple-600 text-white rounded-full flex items-center justify-center font-bold mr-3">
-                                {participant.playerName.charAt(0).toUpperCase()}
-                              </div>
-                              <span className="text-gray-900 font-semibold">
-                                {participant.playerName}
-                              </span>
+                        <tr key={participant.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3">
+                            <div className="w-8 h-8 bg-red-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
+                              {index + 1}
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-gray-600">{participant.playerEmail}</td>
-                          <td className="px-6 py-4 text-gray-600">
+                          <td className="px-4 py-3">
+                            <p className="text-sm font-bold text-gray-900">{participant.playerName}</p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="text-sm text-gray-600">
+                              {participant.playerType === 'guest' 
+                                ? `Managed by ${participant.parentName || 'Unknown'}`
+                                : participant.playerEmail}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {getParticipantBadge(participant)}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {participant.playerStatus ? (
+                              <span className={`inline-block px-2 py-0.5 text-xs font-bold rounded-full ${
+                                participant.playerStatus === 'Active'
+                                  ? 'bg-green-50 text-green-700 border border-green-200'
+                                  : 'bg-orange-50 text-orange-700 border border-orange-200'
+                              }`}>
+                                {participant.playerStatus}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-600">
                             {participant.joinedAt?.toDate().toLocaleDateString('en-IN', {
                               day: 'numeric',
                               month: 'short',

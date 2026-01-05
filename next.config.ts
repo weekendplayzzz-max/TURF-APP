@@ -1,7 +1,24 @@
-import type { NextConfig } from "next";
+import withPWAInit from 'next-pwa';
 
-const nextConfig: NextConfig = {
-  /* config options here */
-};
+const withPWA = withPWAInit({
+  dest: 'public',
+  register: false, // Manual registration for more control
+  skipWaiting: true,
+  disable: false,
+  sw: 'sw.js',
+  scope: '/',
+  runtimeCaching: [
+    {
+      urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+      handler: 'CacheFirst',
+      options: {
+        cacheName: 'google-fonts-cache',
+        expiration: { maxEntries: 4, maxAgeSeconds: 365 * 24 * 60 * 60 }
+      }
+    }
+  ]
+});
 
-export default nextConfig;
+export default withPWA({
+  reactStrictMode: true
+});

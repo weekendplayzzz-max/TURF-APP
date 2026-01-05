@@ -229,7 +229,7 @@ export default function AddGuests() {
   };
 
   const handleViewGuests = () => {
-    router.push('/secretary/view-guests');
+    router.push('/secretary/view-players');
   };
 
   // Filter players based on search

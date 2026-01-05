@@ -169,7 +169,7 @@ export default function SecretaryEvents() {
 
   const openGuestDialog = (eventId: string, eventTitle: string) => {
     setSelectedEvent({ id: eventId, title: eventTitle });
-    setSelectedGuests(new Set()); // Start with none selected (parent must select)
+    setSelectedGuests(new Set()); // Start with none selected
     setShowGuestDialog(true);
   };
 
@@ -196,17 +196,6 @@ export default function SecretaryEvents() {
       setActionLoading(selectedEvent.id);
       closeGuestDialog();
 
-      // Calculate total participants (self + selected guests)
-      const totalToAdd = 1 + selectedGuests.size;
-
-      // Optimistic UI update
-      setEvents(prev => prev.map(e => 
-        e.id === selectedEvent.id 
-          ? { ...e, participantCount: e.participantCount + totalToAdd }
-          : e
-      ));
-      setMyEvents(prev => new Set([...prev, selectedEvent.id]));
-
       await runTransaction(db, async (transaction) => {
         const eventRef = doc(db, 'events', selectedEvent.id);
         const eventDoc = await transaction.get(eventRef);
@@ -221,26 +210,54 @@ export default function SecretaryEvents() {
           throw new Error('Event is no longer open for registration');
         }
 
-        if (eventData.deadline.toMillis() <= Timestamp.now().toMillis()) {
+        if (eventData.deadline.toMillis() < Timestamp.now().toMillis()) {
           throw new Error('Registration deadline has passed');
         }
 
-        // Check if already joined
+        // Check if parent already joined
         const participantsRef = collection(db, 'eventParticipants');
-        const existingQuery = query(
+        const existingParentQuery = query(
           participantsRef,
           where('eventId', '==', selectedEvent.id),
           where('playerId', '==', user.uid),
           where('currentStatus', '==', 'joined')
         );
-        const existingSnapshot = await getDocs(existingQuery);
+        const existingParentSnapshot = await getDocs(existingParentQuery);
 
-        if (!existingSnapshot.empty) {
+        if (!existingParentSnapshot.empty) {
           throw new Error('You have already joined this event');
         }
 
-        const newParticipantCount = (eventData.participantCount || 0) + totalToAdd;
+        // Check which guests are already in the event
+        const existingGuestsQuery = query(
+          participantsRef,
+          where('eventId', '==', selectedEvent.id),
+          where('currentStatus', '==', 'joined')
+        );
+        const existingGuestsSnapshot = await getDocs(existingGuestsQuery);
 
+        const alreadyJoinedGuestIds = new Set<string>();
+        existingGuestsSnapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.playerType === 'guest') {
+            alreadyJoinedGuestIds.add(data.playerId);
+          }
+        });
+
+        // Filter out guests that are already in the event
+        const guestsToAdd = Array.from(selectedGuests).filter(
+          (guestId) => !alreadyJoinedGuestIds.has(guestId)
+        );
+
+        // Calculate total participants to add (parent + available guests)
+        const totalToAdd = 1 + guestsToAdd.length;
+        const skippedCount = selectedGuests.size - guestsToAdd.length;
+
+        if (skippedCount > 0) {
+          console.log(`Skipped ${skippedCount} guest(s) already in the event`);
+        }
+
+        const newParticipantCount = (eventData.participantCount || 0) + totalToAdd;
         transaction.update(eventRef, {
           participantCount: newParticipantCount,
         });
@@ -250,17 +267,18 @@ export default function SecretaryEvents() {
         transaction.set(parentParticipantRef, {
           eventId: selectedEvent.id,
           playerId: user.uid,
-          playerName: user.displayName || user.email?.split('@')[0] || 'Player',
+          playerName: user.displayName || user.email?.split('@')[0] || 'Secretary',
           playerEmail: user.email || '',
           playerType: 'regular',
+          playerRole: 'secretary',
           joinedAt: Timestamp.now(),
           currentStatus: 'joined',
           addedAfterClose: false,
         });
 
-        // Add selected guests
-        for (const guestId of selectedGuests) {
-          const guest = linkedGuests.find(g => g.guestId === guestId);
+        // Add only guests that aren't already in the event
+        for (const guestId of guestsToAdd) {
+          const guest = linkedGuests.find((g) => g.guestId === guestId);
           if (guest) {
             const guestParticipantRef = doc(collection(db, 'eventParticipants'));
             transaction.set(guestParticipantRef, {
@@ -270,27 +288,42 @@ export default function SecretaryEvents() {
               playerEmail: '',
               playerType: 'guest',
               parentId: user.uid,
-              parentName: user.displayName || user.email?.split('@')[0] || 'Player',
+              parentName: user.displayName || user.email?.split('@')[0] || 'Secretary',
               joinedAt: Timestamp.now(),
               currentStatus: 'joined',
               addedAfterClose: false,
             });
           }
         }
-      });
 
-      // Show success dialog
-      const guestText = selectedGuests.size > 0 
-        ? ` with ${selectedGuests.size} guest${selectedGuests.size > 1 ? 's' : ''}`
-        : '';
-      setSuccessMessage(`You${guestText} have successfully joined "${selectedEvent.title}"!`);
-      setShowSuccessDialog(true);
+        // Update UI state
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id === selectedEvent.id
+              ? { ...e, participantCount: e.participantCount + totalToAdd }
+              : e
+          )
+        );
+        setMyEvents((prev) => new Set([...prev, selectedEvent.id]));
+
+        // Show success dialog
+        let guestText = '';
+        if (guestsToAdd.length > 0) {
+          guestText = ` with ${guestsToAdd.length} guest${guestsToAdd.length > 1 ? 's' : ''}`;
+        }
+        
+        let message = `You${guestText} have successfully joined "${selectedEvent.title}"!`;
+        
+        if (skippedCount > 0) {
+          message += ` (${skippedCount} guest${skippedCount > 1 ? 's were' : ' was'} already in the event and skipped)`;
+        }
+
+        setSuccessMessage(message);
+        setShowSuccessDialog(true);
+      });
     } catch (error: any) {
       console.error('Error joining event:', error);
-      
-      // Revert optimistic update on error
       fetchEvents();
-      
       setMessage(error.message || 'Failed to join event');
       setTimeout(() => setMessage(''), 3000);
     } finally {
@@ -360,24 +393,21 @@ export default function SecretaryEvents() {
           transaction.set(participantRef, {
             eventId: eventId,
             playerId: user.uid,
-            playerName: user.displayName || user.email?.split('@')[0] || 'Player',
+            playerName: user.displayName || user.email?.split('@')[0] || 'Secretary',
             playerEmail: user.email || '',
             playerType: 'regular',
+            playerRole: 'secretary',
             joinedAt: Timestamp.now(),
             currentStatus: 'joined',
             addedAfterClose: false,
           });
         });
 
-        // Show success dialog
         setSuccessMessage(`You've successfully joined "${eventTitle}"!`);
         setShowSuccessDialog(true);
       } catch (error: any) {
         console.error('Error joining event:', error);
-        
-        // Revert optimistic update on error
         fetchEvents();
-        
         setMessage(error.message || 'Failed to join event');
         setTimeout(() => setMessage(''), 3000);
       } finally {
@@ -472,10 +502,7 @@ export default function SecretaryEvents() {
       setShowSuccessDialog(true);
     } catch (error: any) {
       console.error('Error leaving event:', error);
-      
-      // Revert optimistic update on error
       fetchEvents();
-      
       setMessage(error.message || 'Failed to leave event');
       setTimeout(() => setMessage(''), 3000);
     } finally {
@@ -886,7 +913,7 @@ export default function SecretaryEvents() {
                     </span>
                   </div>
 
-                  {/* Event Details - Updated with new financial data */}
+                  {/* Event Details */}
                   <div className="bg-gray-50 rounded-xl p-3 sm:p-4 mb-4 border border-gray-200">
                     {event.status === 'open' ? (
                       <div className="grid grid-cols-3 gap-3 sm:gap-4 text-center">

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import '@/app/globals.css';
 import { AuthWrapper } from '../context/AuthWrapper';
+import InstallPWA from '@/components/InstallPWA'; // Import the component
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -16,6 +17,13 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'Role-Based Auth App',
   description: 'Secure authentication with role-based access',
+  manifest: '/manifest.json',
+  themeColor: '#000000',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Role-Based Auth App',
+  },
 };
 
 export default function RootLayout({
@@ -25,11 +33,18 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="apple-touch-icon" href="/icon-192x192.png" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        <AuthWrapper>{children}</AuthWrapper>
+        <AuthWrapper>
+          <InstallPWA />
+          {children}
+        </AuthWrapper>
       </body>
     </html>
   );

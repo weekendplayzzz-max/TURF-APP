@@ -13,7 +13,10 @@ interface Player {
   name: string;
   email: string;
   status: 'Active' | 'Pending';
-  role: string; // Added role field
+  type: 'regular' | 'guest';
+  role?: string;
+  parentId?: string;
+  parentName?: string;
 }
 
 interface Event {
@@ -39,6 +42,8 @@ export default function AddPlayers() {
   const [loadingData, setLoadingData] = useState(true);
   const [message, setMessage] = useState('');
   const [processing, setProcessing] = useState(false);
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
     if (!loading && role !== 'secretary') {
@@ -125,24 +130,25 @@ export default function AddPlayers() {
         });
       }
 
-      // Fetch all authorized players, secretary, and treasurer
+      // Fetch all authorized players
       const players: Player[] = [];
       const playerEmailsSet = new Set<string>();
 
-      // 1. Get users from users collection (already logged in) - players, secretary, treasurer
+      // 1. Get ALL users from users collection (fetch all, filter in memory)
       const usersRef = collection(db, 'users');
       const usersSnapshot = await getDocs(usersRef);
 
       usersSnapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        const email = data.email;
         const userRole = data.role;
+        const email = data.email;
         
-        // Include players, secretary, and treasurer
+        // Include player, secretary, and treasurer roles only
         if (!['player', 'secretary', 'treasurer'].includes(userRole)) {
           return;
         }
-        
+
+        // Skip if already in event or already processed
         if (participantIds.has(docSnap.id) || participantEmails.has(email) || playerEmailsSet.has(email)) {
           return;
         }
@@ -153,24 +159,26 @@ export default function AddPlayers() {
           name: data.displayName || data.name || email?.split('@')[0] || 'User',
           email: email,
           status: 'Active',
+          type: 'regular',
           role: userRole,
         });
       });
 
-      // 2. Get users from authorizedUsers collection (not yet logged in) - players, secretary, treasurer
+      // 2. Get ALL users from authorizedUsers collection (fetch all, filter in memory)
       const authUsersRef = collection(db, 'authorizedUsers');
       const authUsersSnapshot = await getDocs(authUsersRef);
 
       authUsersSnapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        const email = data.email;
         const userRole = data.role;
+        const email = data.email;
         
-        // Include players, secretary, and treasurer
+        // Include player, secretary, and treasurer roles only
         if (!['player', 'secretary', 'treasurer'].includes(userRole)) {
           return;
         }
         
+        // Skip if already in event or already processed
         if (participantEmails.has(email) || playerEmailsSet.has(email)) {
           return;
         }
@@ -181,21 +189,72 @@ export default function AddPlayers() {
           name: data.displayName || email?.split('@')[0] || 'User',
           email: email,
           status: 'Pending',
+          type: 'regular',
           role: userRole,
         });
       });
 
-      // Sort by role (secretary, treasurer, then players) and then by name
+      // 3. Get guest players from guestPlayers collection (only active ones)
+      const guestPlayersRef = collection(db, 'guestPlayers');
+      const guestPlayersQuery = query(guestPlayersRef, where('isActive', '==', true));
+      const guestPlayersSnapshot = await getDocs(guestPlayersQuery);
+
+      guestPlayersSnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        const guestId = docSnap.id;
+        
+        // Skip if guest is already in the event
+        if (participantIds.has(guestId)) {
+          return;
+        }
+
+        // Get parent information
+        const parentIds = data.parentIds || [];
+        const parentNames = data.parentNames || [];
+        const parentName = parentNames.length > 0 ? parentNames.join(', ') : 'Unknown';
+
+        players.push({
+          id: guestId,
+          name: data.guestName,
+          email: `Guest (managed by ${parentName})`,
+          status: 'Active',
+          type: 'guest',
+          parentId: parentIds[0],
+          parentName: parentName,
+        });
+      });
+
+      // Sort: regular users first (by role priority), then guests
       players.sort((a, b) => {
-        const roleOrder = { secretary: 1, treasurer: 2, player: 3 };
-        const roleCompare = (roleOrder[a.role as keyof typeof roleOrder] || 4) - (roleOrder[b.role as keyof typeof roleOrder] || 4);
-        if (roleCompare !== 0) return roleCompare;
+        // Sort by type first
+        if (a.type !== b.type) {
+          return a.type === 'regular' ? -1 : 1;
+        }
+        
+        // Within regular users, sort by role priority
+        if (a.type === 'regular' && b.type === 'regular') {
+          const roleOrder: { [key: string]: number } = { 'secretary': 1, 'treasurer': 2, 'player': 3 };
+          const aOrder = roleOrder[a.role || 'player'] || 99;
+          const bOrder = roleOrder[b.role || 'player'] || 99;
+          if (aOrder !== bOrder) {
+            return aOrder - bOrder;
+          }
+        }
+        
+        // Finally sort by name
         return a.name.localeCompare(b.name);
       });
 
-      console.log('✅ Available Users to Add:', {
+      console.log('✅ Available Participants to Add:', {
         count: players.length,
-        players: players.map(p => ({ name: p.name, email: p.email, status: p.status, role: p.role })),
+        regularCount: players.filter(p => p.type === 'regular').length,
+        guestCount: players.filter(p => p.type === 'guest').length,
+        breakdown: {
+          secretaries: players.filter(p => p.role === 'secretary').length,
+          treasurers: players.filter(p => p.role === 'treasurer').length,
+          players: players.filter(p => p.role === 'player').length,
+          guests: players.filter(p => p.type === 'guest').length,
+        },
       });
 
       setAvailablePlayers(players);
@@ -217,14 +276,23 @@ export default function AddPlayers() {
     setSelectedPlayers(newSelected);
   };
 
+  const selectAll = () => {
+    setSelectedPlayers(new Set(availablePlayers.map(p => p.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedPlayers(new Set());
+  };
+
+  const closeSuccessDialog = () => {
+    setShowSuccessDialog(false);
+    setSuccessMessage('');
+  };
+
   const handleAddPlayers = async () => {
     if (selectedPlayers.size === 0) {
-      setMessage('Please select at least one person');
+      setMessage('Please select at least one participant');
       setTimeout(() => setMessage(''), 3000);
-      return;
-    }
-
-    if (!confirm(`Add ${selectedPlayers.size} participant(s) to this event? This will recalculate all payments.`)) {
       return;
     }
 
@@ -248,30 +316,45 @@ export default function AddPlayers() {
 
         // Create participant record
         const participantRef = doc(collection(db, 'eventParticipants'));
-        await setDoc(participantRef, {
+        
+        const participantData: any = {
           eventId: eventId,
           playerId: playerId,
           playerName: player.name,
           playerEmail: player.email,
+          playerType: player.type,
           playerStatus: player.status,
-          playerRole: player.role, // Store the role
           joinedAt: Timestamp.now(),
           currentStatus: 'joined',
           addedAfterClose: true,
           addedBy: user?.uid,
           addedByRole: 'secretary',
-        });
+        };
+
+        // Add role for regular users
+        if (player.type === 'regular' && player.role) {
+          participantData.playerRole = player.role;
+        }
+
+        // Add parent info for guests
+        if (player.type === 'guest' && player.parentId) {
+          participantData.parentId = player.parentId;
+          participantData.parentName = player.parentName;
+        }
+
+        await setDoc(participantRef, participantData);
 
         // Create payment record immediately
         const paymentRef = doc(collection(db, 'eventPayments'));
-        await setDoc(paymentRef, {
+        
+        const paymentData: any = {
           eventId: eventId,
           eventTitle: event?.title,
           eventDate: event?.date,
           eventTime: event?.time,
           playerId: playerId,
           playerName: player.name,
-          playerRole: player.role, // Store the role
+          playerType: player.type,
           originalAmountDue: newPerPlayerAmount,
           currentAmountDue: newPerPlayerAmount,
           totalPaid: 0,
@@ -282,7 +365,20 @@ export default function AddPlayers() {
           addedAfterClose: true,
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
-        });
+        };
+
+        // Add role for regular users
+        if (player.type === 'regular' && player.role) {
+          paymentData.playerRole = player.role;
+        }
+
+        // Add parent info for guests
+        if (player.type === 'guest' && player.parentId) {
+          paymentData.parentId = player.parentId;
+          paymentData.parentName = player.parentName;
+        }
+
+        await setDoc(paymentRef, paymentData);
 
         addedPlayerIds.push(playerId);
       }
@@ -319,12 +415,22 @@ export default function AddPlayers() {
         await recalculatePayments(eventId, event.totalAmount, newParticipantCount);
       }
 
-      setMessage(`Successfully added ${selectedPlayers.size} participant(s) with payment records (pending status)`);
+      const regularCount = availablePlayers.filter(p => selectedPlayers.has(p.id) && p.type === 'regular').length;
+      const guestCount = availablePlayers.filter(p => selectedPlayers.has(p.id) && p.type === 'guest').length;
+      
+      let message = `Successfully added ${selectedPlayers.size} participant(s)`;
+      if (regularCount > 0 && guestCount > 0) {
+        message += ` (${regularCount} user${regularCount > 1 ? 's' : ''}, ${guestCount} guest${guestCount > 1 ? 's' : ''})`;
+      } else if (guestCount > 0) {
+        message += ` (${guestCount} guest${guestCount > 1 ? 's' : ''})`;
+      }
+      message += ' with payment records (pending status)';
+
+      setSuccessMessage(message);
+      setShowSuccessDialog(true);
       
       // Clear selection
       setSelectedPlayers(new Set());
-      
-      setTimeout(() => setMessage(''), 3000);
 
     } catch (error) {
       console.error('Error adding participants:', error);
@@ -350,31 +456,64 @@ export default function AddPlayers() {
   }
 
   // Helper function to get role badge
-  const getRoleBadge = (playerRole: string) => {
-    switch (playerRole) {
-      case 'secretary':
-        return (
-          <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-purple-50 text-purple-700 border border-purple-200">
-            Secretary
-          </span>
-        );
-      case 'treasurer':
-        return (
-          <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-orange-50 text-orange-700 border border-orange-200">
-            Treasurer
-          </span>
-        );
-      default:
-        return (
-          <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-            Player
-          </span>
-        );
+  const getRoleBadge = (player: Player) => {
+    if (player.type === 'guest') {
+      return (
+        <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-purple-50 text-purple-700 border border-purple-200 flex-shrink-0">
+          Guest
+        </span>
+      );
     }
+    
+    const roleConfig: { [key: string]: { color: string; label: string } } = {
+      'secretary': { color: 'bg-orange-50 text-orange-700 border-orange-200', label: 'Secretary' },
+      'treasurer': { color: 'bg-green-50 text-green-700 border-green-200', label: 'Treasurer' },
+      'player': { color: 'bg-blue-50 text-blue-700 border-blue-200', label: 'Player' },
+    };
+    
+    const config = roleConfig[player.role || 'player'] || roleConfig['player'];
+    
+    return (
+      <span className={`px-2 py-0.5 text-xs font-bold rounded-full border flex-shrink-0 ${config.color}`}>
+        {config.label}
+      </span>
+    );
   };
+
+  // Count selected by type
+  const selectedRegular = availablePlayers.filter(p => selectedPlayers.has(p.id) && p.type === 'regular').length;
+  const selectedGuests = availablePlayers.filter(p => selectedPlayers.has(p.id) && p.type === 'guest').length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      {/* Success Dialog */}
+      {showSuccessDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 max-w-md w-full p-6 sm:p-8 animate-slideUp">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
+                Success!
+              </h3>
+              <p className="text-sm sm:text-base text-gray-600 break-words">
+                {successMessage}
+              </p>
+              
+              <button
+                onClick={closeSuccessDialog}
+                className="mt-6 w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors cursor-pointer"
+              >
+                Got it!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -403,7 +542,11 @@ export default function AddPlayers() {
               </h1>
               {event && (
                 <p className="text-xs sm:text-sm text-gray-600 truncate">
-                  {event.title} • {event.date.toDate().toLocaleDateString('en-IN')} • {event.time}
+                  {event.title} • {event.date.toDate().toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric'
+                  })} • {event.time}
                 </p>
               )}
             </div>
@@ -414,7 +557,7 @@ export default function AddPlayers() {
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 md:py-10">
         {message && (
-          <div className={`mb-6 p-4 rounded-lg border-l-4 ${
+          <div className={`mb-6 p-4 rounded-lg border-l-4 animate-slideDown ${
             message.includes('Successfully')
               ? 'bg-green-50 border-green-500 text-green-800'
               : message.includes('Please')
@@ -440,30 +583,37 @@ export default function AddPlayers() {
             {/* Event Info */}
             <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-4 sm:p-6 mb-6">
               <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4">Turf Details</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-                <div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-blue-50 rounded-xl p-3 sm:p-4">
                   <p className="text-xs text-gray-600 mb-1">Current Participants</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900">
+                  <p className="text-xl sm:text-2xl font-bold text-blue-600">
                     {currentParticipants.size}
                   </p>
                 </div>
-                <div>
+                <div className="bg-purple-50 rounded-xl p-3 sm:p-4">
                   <p className="text-xs text-gray-600 mb-1">Total Amount</p>
-                  <p className="text-xl sm:text-2xl font-bold text-gray-900">₹{event?.totalAmount.toLocaleString()}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-purple-600">₹{event?.totalAmount.toLocaleString()}</p>
                 </div>
-                <div>
+                <div className="bg-red-50 rounded-xl p-3 sm:p-4">
                   <p className="text-xs text-gray-600 mb-1">Status</p>
-                  <span className={`inline-block px-2 sm:px-3 py-1 rounded-lg text-xs font-semibold ${
-                    event?.status === 'open' ? 'bg-green-50 text-green-700 border border-green-200' :
-                    event?.status === 'closed' ? 'bg-red-50 text-red-700 border border-red-200' :
-                    'bg-gray-100 text-gray-700 border border-gray-200'
+                  <span className={`inline-block px-3 py-1 rounded-lg text-xs font-bold border ${
+                    event?.status === 'open' ? 'bg-green-50 text-green-700 border-green-200' :
+                    event?.status === 'closed' ? 'bg-red-50 text-red-700 border-red-200' :
+                    'bg-gray-100 text-gray-700 border-gray-200'
                   }`}>
                     {event?.status.toUpperCase()}
                   </span>
                 </div>
-                <div>
+                <div className="bg-green-50 rounded-xl p-3 sm:p-4">
                   <p className="text-xs text-gray-600 mb-1">Selected to Add</p>
-                  <p className="text-xl sm:text-2xl font-bold text-red-600">{selectedPlayers.size}</p>
+                  <p className="text-xl sm:text-2xl font-bold text-green-600">
+                    {selectedPlayers.size}
+                    {selectedPlayers.size > 0 && (
+                      <span className="text-xs text-green-700 ml-1 block mt-1">
+                        ({selectedRegular}U, {selectedGuests}G)
+                      </span>
+                    )}
+                  </p>
                 </div>
               </div>
             </div>
@@ -478,19 +628,37 @@ export default function AddPlayers() {
                 </div>
                 <p className="text-lg sm:text-xl font-bold text-gray-900 mb-2">No available participants to add</p>
                 <p className="text-sm sm:text-base text-gray-600">
-                  All authorized users are already in this event
+                  All authorized users and guests are already in this event
                 </p>
               </div>
             ) : (
               <>
                 <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-4 sm:p-6 mb-6">
-                  <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-4">
-                    Available Participants ({availablePlayers.length})
-                  </h2>
-                  
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg sm:text-xl font-bold text-gray-900">
+                      Available Participants ({availablePlayers.length})
+                    </h2>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={selectAll}
+                        className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg transition-colors border border-blue-200"
+                      >
+                        Select All
+                      </button>
+                      {selectedPlayers.size > 0 && (
+                        <button
+                          onClick={clearSelection}
+                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg transition-colors"
+                        >
+                          Clear ({selectedPlayers.size})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                  
 
-                  <div className="space-y-2 sm:space-y-3">
+                  <div className="space-y-3">
                     {availablePlayers.map((player) => (
                       <div
                         key={player.id}
@@ -501,16 +669,16 @@ export default function AddPlayers() {
                             : 'border-gray-200 hover:border-red-300 hover:bg-gray-50'
                         }`}
                       >
-                        <div className="flex items-center flex-1 min-w-0 mr-3">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
                           <div
-                            className={`w-5 h-5 sm:w-6 sm:h-6 rounded border-2 mr-3 sm:mr-4 flex items-center justify-center flex-shrink-0 ${
+                            className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center ${
                               selectedPlayers.has(player.id)
                                 ? 'bg-red-600 border-red-600'
                                 : 'border-gray-300'
                             }`}
                           >
                             {selectedPlayers.has(player.id) && (
-                              <svg className="w-3 h-3 sm:w-4 sm:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
                               </svg>
                             )}
@@ -518,9 +686,9 @@ export default function AddPlayers() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
                               <p className="text-sm sm:text-base font-semibold text-gray-900 truncate">{player.name}</p>
-                              {getRoleBadge(player.role)}
+                              {getRoleBadge(player)}
                               <span
-                                className={`px-2 py-0.5 text-xs font-semibold rounded-full flex-shrink-0 ${
+                                className={`px-2 py-0.5 text-xs font-bold rounded-full flex-shrink-0 ${
                                   player.status === 'Active'
                                     ? 'bg-green-50 text-green-700 border border-green-200'
                                     : 'bg-orange-50 text-orange-700 border border-orange-200'
@@ -532,9 +700,6 @@ export default function AddPlayers() {
                             <p className="text-xs sm:text-sm text-gray-600 truncate">{player.email}</p>
                           </div>
                         </div>
-                        <span className="text-xs sm:text-sm text-red-600 font-semibold flex-shrink-0">
-                          {selectedPlayers.has(player.id) ? 'Selected' : 'Select'}
-                        </span>
                       </div>
                     ))}
                   </div>
@@ -542,32 +707,68 @@ export default function AddPlayers() {
 
                 {/* Action Buttons */}
                 <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-4 sm:p-6">
-                  <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                    <button
-                      onClick={handleAddPlayers}
-                      disabled={selectedPlayers.size === 0 || processing}
-                      className="flex-1 px-4 sm:px-6 py-3 sm:py-4 bg-red-600 hover:bg-red-700 text-white font-semibold text-sm sm:text-base rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {processing
-                        ? 'Adding Participants...'
-                        : selectedPlayers.size > 0
-                        ? `Add ${selectedPlayers.size} Participant${selectedPlayers.size !== 1 ? 's' : ''}`
-                        : 'Select Participants to Add'}
-                    </button>
-                    <button
-                      onClick={() => setSelectedPlayers(new Set())}
-                      disabled={selectedPlayers.size === 0 || processing}
-                      className="px-4 sm:px-6 py-3 sm:py-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm sm:text-base rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Clear
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleAddPlayers}
+                    disabled={selectedPlayers.size === 0 || processing}
+                    className="w-full px-6 py-3 sm:py-4 bg-red-600 hover:bg-red-700 text-white font-bold text-sm sm:text-base rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {processing
+                      ? 'Adding Participants & Creating Payments...'
+                      : selectedPlayers.size > 0
+                      ? `Add ${selectedPlayers.size} Participant${selectedPlayers.size !== 1 ? 's' : ''} & Create Payment Records`
+                      : 'Select Participants to Add'}
+                  </button>
                 </div>
               </>
             )}
           </>
         )}
       </div>
+
+      <style jsx>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes slideDown {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .animate-fadeIn {
+          animation: fadeIn 0.2s ease-out;
+        }
+
+        .animate-slideUp {
+          animation: slideUp 0.3s ease-out;
+        }
+
+        .animate-slideDown {
+          animation: slideDown 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 }
