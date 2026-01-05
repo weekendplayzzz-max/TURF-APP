@@ -14,7 +14,6 @@ import {
   Timestamp,
   orderBy,
   runTransaction,
-  getDoc,
 } from 'firebase/firestore';
 import { calculatePerPlayerAmount } from '@/lib/eventManagement';
 
@@ -33,61 +32,25 @@ interface Event {
   createdByRole: string;
 }
 
-interface GuestPlayer {
-  guestId: string;
-  guestName: string;
-}
-
-export default function PlayerEvents() {
+export default function TreasurerEvents() {
   const { role, loading, user } = useAuth();
   const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
   const [myEvents, setMyEvents] = useState<Set<string>>(new Set());
-  const [linkedGuests, setLinkedGuests] = useState<GuestPlayer[]>([]);
   const [filter, setFilter] = useState<'upcoming' | 'joined' | 'past'>('upcoming');
   const [loadingData, setLoadingData] = useState(true);
   const [message, setMessage] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showLeaveDialog, setShowLeaveDialog] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
-  const [showGuestDialog, setShowGuestDialog] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<{ id: string; title: string } | null>(null);
-  const [selectedGuests, setSelectedGuests] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!loading && role !== 'player') {
+    if (!loading && role !== 'treasurer') {
       router.push('/login');
     }
   }, [role, loading, router]);
-
-  const fetchLinkedGuests = useCallback(async () => {
-    if (!user) return;
-
-    try {
-      // Fetch guest players linked to this user
-      const guestsRef = collection(db, 'guestPlayers');
-      const guestsQuery = query(
-        guestsRef,
-        where('parentIds', 'array-contains', user.uid),
-        where('isActive', '==', true)
-      );
-      const guestsSnapshot = await getDocs(guestsQuery);
-
-      const guests: GuestPlayer[] = [];
-      guestsSnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        guests.push({
-          guestId: docSnap.id,
-          guestName: data.guestName,
-        });
-      });
-
-      setLinkedGuests(guests);
-    } catch (error) {
-      console.error('Error fetching linked guests:', error);
-    }
-  }, [user]);
 
   const fetchEvents = useCallback(async () => {
     if (!user) return;
@@ -122,8 +85,8 @@ export default function PlayerEvents() {
           (participantCountMap.get(eventId) || 0) + 1
         );
 
-        // Track my events (including if I joined with guests)
-        if (data.playerId === user.uid || data.parentId === user.uid) {
+        // Track my events
+        if (data.playerId === user.uid) {
           myEventIds.add(eventId);
         }
       });
@@ -162,263 +125,87 @@ export default function PlayerEvents() {
   }, [user]);
 
   useEffect(() => {
-    if (role === 'player') {
+    if (role === 'treasurer') {
       fetchEvents();
-      fetchLinkedGuests();
     }
-  }, [role, fetchEvents, fetchLinkedGuests]);
-
-  const openGuestDialog = (eventId: string, eventTitle: string) => {
-    setSelectedEvent({ id: eventId, title: eventTitle });
-    setSelectedGuests(new Set()); // Start with none selected (parent must select)
-    setShowGuestDialog(true);
-  };
-
-  const closeGuestDialog = () => {
-    setShowGuestDialog(false);
-    setSelectedEvent(null);
-    setSelectedGuests(new Set());
-  };
-
-  const toggleGuest = (guestId: string) => {
-    const newSelected = new Set(selectedGuests);
-    if (newSelected.has(guestId)) {
-      newSelected.delete(guestId);
-    } else {
-      newSelected.add(guestId);
-    }
-    setSelectedGuests(newSelected);
-  };
-
-  const handleJoinEventWithGuests = async () => {
-  if (!user || !selectedEvent) return;
-
-  try {
-    setActionLoading(selectedEvent.id);
-    closeGuestDialog();
-
-    await runTransaction(db, async (transaction) => {
-      const eventRef = doc(db, 'events', selectedEvent.id);
-      const eventDoc = await transaction.get(eventRef);
-
-      if (!eventDoc.exists()) {
-        throw new Error('Event not found');
-      }
-
-      const eventData = eventDoc.data();
-
-      if (eventData.status !== 'open') {
-        throw new Error('Event is no longer open for registration');
-      }
-
-      if (eventData.deadline.toMillis() < Timestamp.now().toMillis()) {
-        throw new Error('Registration deadline has passed');
-      }
-
-      // Check if parent already joined
-      const participantsRef = collection(db, 'eventParticipants');
-      const existingParentQuery = query(
-        participantsRef,
-        where('eventId', '==', selectedEvent.id),
-        where('playerId', '==', user.uid),
-        where('currentStatus', '==', 'joined')
-      );
-      const existingParentSnapshot = await getDocs(existingParentQuery);
-
-      if (!existingParentSnapshot.empty) {
-        throw new Error('You have already joined this event');
-      }
-
-      // Check which guests are already in the event (added by other parents)
-      const existingGuestsQuery = query(
-        participantsRef,
-        where('eventId', '==', selectedEvent.id),
-        where('currentStatus', '==', 'joined')
-      );
-      const existingGuestsSnapshot = await getDocs(existingGuestsQuery);
-
-      // Create a Set of already-joined guest IDs
-      const alreadyJoinedGuestIds = new Set<string>();
-      existingGuestsSnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (data.playerType === 'guest') {
-          alreadyJoinedGuestIds.add(data.playerId);
-        }
-      });
-
-      // Filter out guests that are already in the event
-      const guestsToAdd = Array.from(selectedGuests).filter(
-        (guestId) => !alreadyJoinedGuestIds.has(guestId)
-      );
-
-      // Calculate total participants to add (parent + available guests)
-      const totalToAdd = 1 + guestsToAdd.length;
-
-      // Show info if some guests were skipped
-      const skippedCount = selectedGuests.size - guestsToAdd.length;
-      if (skippedCount > 0) {
-        console.log(`Skipped ${skippedCount} guest(s) already in the event`);
-      }
-
-      const newParticipantCount = (eventData.participantCount || 0) + totalToAdd;
-      transaction.update(eventRef, {
-        participantCount: newParticipantCount,
-      });
-
-      // Add parent
-      const parentParticipantRef = doc(collection(db, 'eventParticipants'));
-      transaction.set(parentParticipantRef, {
-        eventId: selectedEvent.id,
-        playerId: user.uid,
-        playerName: user.displayName || user.email?.split('@')[0] || 'Player',
-        playerEmail: user.email || '',
-        playerType: 'regular',
-        joinedAt: Timestamp.now(),
-        currentStatus: 'joined',
-        addedAfterClose: false,
-      });
-
-      // Add only guests that aren't already in the event
-      for (const guestId of guestsToAdd) {
-        const guest = linkedGuests.find((g) => g.guestId === guestId);
-        if (guest) {
-          const guestParticipantRef = doc(collection(db, 'eventParticipants'));
-          transaction.set(guestParticipantRef, {
-            eventId: selectedEvent.id,
-            playerId: guestId,
-            playerName: guest.guestName,
-            playerEmail: '',
-            playerType: 'guest',
-            parentId: user.uid,
-            parentName: user.displayName || user.email?.split('@')[0] || 'Player',
-            joinedAt: Timestamp.now(),
-            currentStatus: 'joined',
-            addedAfterClose: false,
-          });
-        }
-      }
-
-      // Update UI state
-      setEvents((prev) =>
-        prev.map((e) =>
-          e.id === selectedEvent.id
-            ? { ...e, participantCount: e.participantCount + totalToAdd }
-            : e
-        )
-      );
-      setMyEvents((prev) => new Set([...prev, selectedEvent.id]));
-
-      // Show success dialog with appropriate message
-      let guestText = '';
-      if (guestsToAdd.length > 0) {
-        guestText = ` with ${guestsToAdd.length} guest${guestsToAdd.length > 1 ? 's' : ''}`;
-      }
-      
-      let message = `You${guestText} have successfully joined ${selectedEvent.title}!`;
-      
-      if (skippedCount > 0) {
-        message += ` (${skippedCount} guest${skippedCount > 1 ? 's were' : ' was'} already in the event and skipped)`;
-      }
-
-      setSuccessMessage(message);
-      setShowSuccessDialog(true);
-    });
-  } catch (error: any) {
-    console.error('Error joining event:', error);
-    fetchEvents(); // Revert optimistic update on error
-    setMessage(error.message || 'Failed to join event');
-    setTimeout(() => setMessage(''), 3000);
-  } finally {
-    setActionLoading(null);
-    setSelectedEvent(null);
-    setSelectedGuests(new Set());
-  }
-};
-
+  }, [role, fetchEvents]);
 
   const handleJoinEvent = async (eventId: string, eventTitle: string) => {
-    // If player has linked guests, show guest selection dialog
-    if (linkedGuests.length > 0) {
-      openGuestDialog(eventId, eventTitle);
-    } else {
-      // No guests, join directly
-      if (!user) return;
+    if (!user) return;
 
-      try {
-        setActionLoading(eventId);
+    try {
+      setActionLoading(eventId);
 
-        // Optimistic UI update
-        setEvents(prev => prev.map(e => 
-          e.id === eventId 
-            ? { ...e, participantCount: e.participantCount + 1 }
-            : e
-        ));
-        setMyEvents(prev => new Set([...prev, eventId]));
+      // Optimistic UI update - update immediately
+      setEvents(prev => prev.map(e => 
+        e.id === eventId 
+          ? { ...e, participantCount: e.participantCount + 1 }
+          : e
+      ));
+      setMyEvents(prev => new Set([...prev, eventId]));
 
-        await runTransaction(db, async (transaction) => {
-          const eventRef = doc(db, 'events', eventId);
-          const eventDoc = await transaction.get(eventRef);
+      await runTransaction(db, async (transaction) => {
+        const eventRef = doc(db, 'events', eventId);
+        const eventDoc = await transaction.get(eventRef);
 
-          if (!eventDoc.exists()) {
-            throw new Error('Event not found');
-          }
+        if (!eventDoc.exists()) {
+          throw new Error('Event not found');
+        }
 
-          const eventData = eventDoc.data();
+        const eventData = eventDoc.data();
 
-          if (eventData.status !== 'open') {
-            throw new Error('Event is no longer open for registration');
-          }
+        if (eventData.status !== 'open') {
+          throw new Error('Event is no longer open for registration');
+        }
 
-          if (eventData.deadline.toMillis() <= Timestamp.now().toMillis()) {
-            throw new Error('Registration deadline has passed');
-          }
+        if (eventData.deadline.toMillis() <= Timestamp.now().toMillis()) {
+          throw new Error('Registration deadline has passed');
+        }
 
-          const participantsRef = collection(db, 'eventParticipants');
-          const existingQuery = query(
-            participantsRef,
-            where('eventId', '==', eventId),
-            where('playerId', '==', user.uid),
-            where('currentStatus', '==', 'joined')
-          );
-          const existingSnapshot = await getDocs(existingQuery);
+        const participantsRef = collection(db, 'eventParticipants');
+        const existingQuery = query(
+          participantsRef,
+          where('eventId', '==', eventId),
+          where('playerId', '==', user.uid),
+          where('currentStatus', '==', 'joined')
+        );
+        const existingSnapshot = await getDocs(existingQuery);
 
-          if (!existingSnapshot.empty) {
-            throw new Error('You have already joined this event');
-          }
+        if (!existingSnapshot.empty) {
+          throw new Error('You have already joined this event');
+        }
 
-          const newParticipantCount = (eventData.participantCount || 0) + 1;
+        const newParticipantCount = (eventData.participantCount || 0) + 1;
 
-          transaction.update(eventRef, {
-            participantCount: newParticipantCount,
-          });
-
-          const participantRef = doc(collection(db, 'eventParticipants'));
-          transaction.set(participantRef, {
-            eventId: eventId,
-            playerId: user.uid,
-            playerName: user.displayName || user.email?.split('@')[0] || 'Player',
-            playerEmail: user.email || '',
-            playerType: 'regular',
-            joinedAt: Timestamp.now(),
-            currentStatus: 'joined',
-            addedAfterClose: false,
-          });
+        transaction.update(eventRef, {
+          participantCount: newParticipantCount,
         });
 
-        // Show success dialog
-        setSuccessMessage(`You've successfully joined "${eventTitle}"!`);
-        setShowSuccessDialog(true);
-      } catch (error: any) {
-        console.error('Error joining event:', error);
-        
-        // Revert optimistic update on error
-        fetchEvents();
-        
-        setMessage(error.message || 'Failed to join event');
-        setTimeout(() => setMessage(''), 3000);
-      } finally {
-        setActionLoading(null);
-      }
+        const participantRef = doc(collection(db, 'eventParticipants'));
+        transaction.set(participantRef, {
+          eventId: eventId,
+          playerId: user.uid,
+          playerName: user.displayName || user.email?.split('@')[0] || 'Treasurer',
+          playerEmail: user.email || '',
+          joinedAt: Timestamp.now(),
+          currentStatus: 'joined',
+          addedAfterClose: false,
+        });
+      });
+
+      // Show success dialog
+      setSuccessMessage(`You've successfully joined "${eventTitle}"!`);
+      setShowSuccessDialog(true);
+    } catch (error: any) {
+      console.error('Error joining event:', error);
+      
+      // Revert optimistic update on error
+      fetchEvents();
+      
+      setMessage(error.message || 'Failed to join event');
+      setTimeout(() => setMessage(''), 3000);
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -444,31 +231,10 @@ export default function PlayerEvents() {
       setActionLoading(selectedEvent.id);
       closeLeaveDialog();
 
-      // Count how many will be removed (parent + their guests in this event)
-      const participantsRef = collection(db, 'eventParticipants');
-      const myParticipantsQuery = query(
-        participantsRef,
-        where('eventId', '==', selectedEvent.id),
-        where('currentStatus', '==', 'joined')
-      );
-      const myParticipantsSnapshot = await getDocs(myParticipantsQuery);
-
-      let toRemoveCount = 0;
-      const toRemoveIds: string[] = [];
-
-      myParticipantsSnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        // Remove parent and their guests
-        if (data.playerId === user.uid || data.parentId === user.uid) {
-          toRemoveCount++;
-          toRemoveIds.push(docSnap.id);
-        }
-      });
-
-      // Optimistic UI update
+      // Optimistic UI update - update immediately
       setEvents(prev => prev.map(e => 
         e.id === selectedEvent.id 
-          ? { ...e, participantCount: Math.max(e.participantCount - toRemoveCount, 0) }
+          ? { ...e, participantCount: Math.max(e.participantCount - 1, 0) }
           : e
       ));
       setMyEvents(prev => {
@@ -491,20 +257,31 @@ export default function PlayerEvents() {
           throw new Error('Cannot leave a closed event');
         }
 
-        // Delete all participant records (parent + guests)
-        toRemoveIds.forEach((docId) => {
-          transaction.delete(doc(db, 'eventParticipants', docId));
+        const participantsRef = collection(db, 'eventParticipants');
+        const participantQuery = query(
+          participantsRef,
+          where('eventId', '==', selectedEvent.id),
+          where('playerId', '==', user.uid),
+          where('currentStatus', '==', 'joined')
+        );
+        const participantSnapshot = await getDocs(participantQuery);
+
+        if (participantSnapshot.empty) {
+          throw new Error('Participant record not found');
+        }
+
+        participantSnapshot.forEach((docSnap) => {
+          transaction.delete(doc(db, 'eventParticipants', docSnap.id));
         });
 
-        const newParticipantCount = Math.max((eventData.participantCount || toRemoveCount) - toRemoveCount, 0);
+        const newParticipantCount = Math.max((eventData.participantCount || 1) - 1, 0);
         transaction.update(eventRef, {
           participantCount: newParticipantCount,
         });
       });
 
       // Show success dialog
-      const guestText = toRemoveCount > 1 ? ` and ${toRemoveCount - 1} guest${toRemoveCount > 2 ? 's' : ''}` : '';
-      setSuccessMessage(`You${guestText} have successfully left "${selectedEvent.title}"`);
+      setSuccessMessage(`You've successfully left "${selectedEvent.title}"`);
       setShowSuccessDialog(true);
     } catch (error: any) {
       console.error('Error leaving event:', error);
@@ -536,7 +313,7 @@ export default function PlayerEvents() {
 
   const filteredEvents = getFilteredEvents();
 
-  if (loading || !user || role !== 'player') {
+  if (loading || !user || role !== 'treasurer') {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
         <div className="text-center">
@@ -552,102 +329,6 @@ export default function PlayerEvents() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Guest Selection Dialog */}
-      {showGuestDialog && selectedEvent && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 max-w-md w-full p-6 sm:p-8 animate-slideUp max-h-[90vh] overflow-y-auto">
-            <div className="mb-6">
-              <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
-                Select Participants
-              </h3>
-              <p className="text-sm text-gray-600 break-words">
-                Joining: <span className="font-semibold">{selectedEvent.title}</span>
-              </p>
-            </div>
-
-            {/* Parent (always selected) */}
-            <div className="mb-4">
-              <div className="flex items-center gap-3 p-3 rounded-xl border-2 border-red-600 bg-red-50">
-                <div className="w-5 h-5 bg-red-600 border-red-600 rounded border-2 flex-shrink-0 flex items-center justify-center">
-                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-gray-900">
-                    Myself ({user.displayName || 'You'})
-                  </p>
-                  <p className="text-xs text-gray-600">Required</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Guest Players */}
-            {linkedGuests.length > 0 && (
-              <div className="mb-6">
-                <p className="text-sm font-semibold text-gray-700 mb-3">Your Linked Players:</p>
-                <div className="space-y-2">
-                  {linkedGuests.map((guest) => (
-                    <div
-                      key={guest.guestId}
-                      onClick={() => toggleGuest(guest.guestId)}
-                      className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
-                        selectedGuests.has(guest.guestId)
-                          ? 'border-red-600 bg-red-50'
-                          : 'border-gray-200 hover:border-red-300 bg-white'
-                      }`}
-                    >
-                      <div
-                        className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center ${
-                          selectedGuests.has(guest.guestId)
-                            ? 'bg-red-600 border-red-600'
-                            : 'border-gray-300'
-                        }`}
-                      >
-                        {selectedGuests.has(guest.guestId) && (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-gray-900">{guest.guestName}</p>
-                        <p className="text-xs text-gray-600">Guest Player</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Summary */}
-            <div className="bg-blue-50 border-l-4 border-blue-500 p-3 mb-6 rounded-lg">
-              <p className="text-sm text-blue-800">
-                <span className="font-semibold">Total: {1 + selectedGuests.size} participant{1 + selectedGuests.size > 1 ? 's' : ''}</span>
-              </p>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="space-y-3">
-              <button
-                onClick={handleJoinEventWithGuests}
-                disabled={actionLoading === selectedEvent.id}
-                className="w-full px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {actionLoading === selectedEvent.id ? 'Joining...' : `Join with ${1 + selectedGuests.size} participant${1 + selectedGuests.size > 1 ? 's' : ''}`}
-              </button>
-              <button
-                onClick={closeGuestDialog}
-                disabled={actionLoading === selectedEvent.id}
-                className="w-full px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Leave Confirmation Dialog */}
       {showLeaveDialog && selectedEvent && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 animate-fadeIn">
@@ -667,11 +348,6 @@ export default function PlayerEvents() {
               <p className="text-sm sm:text-base font-semibold text-gray-900 mt-1 break-words">
                 "{selectedEvent.title}"?
               </p>
-              {linkedGuests.length > 0 && (
-                <p className="text-xs text-orange-600 mt-2">
-                  This will also remove any guests you joined with
-                </p>
-              )}
             </div>
 
             <div className="space-y-3">
@@ -1008,19 +684,6 @@ export default function PlayerEvents() {
                         Leave Event
                       </button>
                     )}
-
-                    <button
-                      onClick={() => router.push(`/player/event-participants/${event.id}`)}
-                      className="flex-1 sm:flex-none px-4 sm:px-6 py-2 sm:py-2.5 bg-white hover:bg-gray-50 text-gray-700 font-semibold rounded-lg border border-gray-200 transition-colors cursor-pointer flex items-center justify-center gap-2 text-sm"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                      </svg>
-                      <span>Participants</span>
-                      <span className="px-2 py-0.5 bg-gray-100 rounded-full text-xs font-bold">
-                        {event.participantCount}
-                      </span>
-                    </button>
 
                     {!canJoinLeave && event.status === 'open' && isDeadlinePassed && (
                       <span className="flex-1 sm:flex-none px-4 sm:px-6 py-2 sm:py-2.5 bg-gray-100 text-gray-600 font-semibold rounded-lg text-center text-sm">

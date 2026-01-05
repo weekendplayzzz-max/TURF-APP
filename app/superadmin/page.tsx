@@ -192,6 +192,43 @@ export default function SuperAdminDashboard() {
             {/* Action Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {/* Manage Roles Card */}
+              <Link href="/superadmin/add-secretary">
+    <div className="bg-white rounded-lg shadow-md hover:shadow-xl transition-all duration-300 p-6 cursor-pointer transform hover:scale-105">
+      <div className="flex items-start justify-between mb-4">
+        <div className="text-4xl">📋</div>
+        <span className="bg-purple-100 text-purple-800 text-xs font-semibold px-2 py-1 rounded-full">
+          Add
+        </span>
+      </div>
+      <h3 className="text-lg font-bold text-gray-900 mb-2">Add Secretary</h3>
+      <p className="text-gray-600 text-sm mb-4">Authorize a new Secretary</p>
+      <div className="flex items-center text-purple-600 font-semibold text-sm">
+        Add now
+        <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </div>
+    </div>
+  </Link>
+
+  <Link href="/superadmin/add-treasurer">
+    <div className="bg-white rounded-lg shadow-md hover:shadow-xl transition-all duration-300 p-6 cursor-pointer transform hover:scale-105">
+      <div className="flex items-start justify-between mb-4">
+        <div className="text-4xl">💰</div>
+        <span className="bg-orange-100 text-orange-800 text-xs font-semibold px-2 py-1 rounded-full">
+          Add
+        </span>
+      </div>
+      <h3 className="text-lg font-bold text-gray-900 mb-2">Add Treasurer</h3>
+      <p className="text-gray-600 text-sm mb-4">Authorize a new Treasurer</p>
+      <div className="flex items-center text-orange-600 font-semibold text-sm">
+        Add now
+        <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </div>
+    </div>
+  </Link>
               <Link href="/superadmin/manage-roles">
                 <div className="bg-white rounded-lg shadow-md hover:shadow-xl transition-all duration-300 p-8 cursor-pointer transform hover:scale-105">
                   <div className="flex items-start justify-between mb-4">

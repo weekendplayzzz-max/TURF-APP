@@ -14,7 +14,6 @@ import {
   Timestamp,
   orderBy,
   runTransaction,
-  getDoc,
 } from 'firebase/firestore';
 import { calculatePerPlayerAmount } from '@/lib/eventManagement';
 
@@ -38,7 +37,7 @@ interface GuestPlayer {
   guestName: string;
 }
 
-export default function PlayerEvents() {
+export default function SecretaryEvents() {
   const { role, loading, user } = useAuth();
   const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
@@ -56,7 +55,7 @@ export default function PlayerEvents() {
   const [selectedGuests, setSelectedGuests] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!loading && role !== 'player') {
+    if (!loading && role !== 'secretary') {
       router.push('/login');
     }
   }, [role, loading, router]);
@@ -162,7 +161,7 @@ export default function PlayerEvents() {
   }, [user]);
 
   useEffect(() => {
-    if (role === 'player') {
+    if (role === 'secretary') {
       fetchEvents();
       fetchLinkedGuests();
     }
@@ -191,153 +190,118 @@ export default function PlayerEvents() {
   };
 
   const handleJoinEventWithGuests = async () => {
-  if (!user || !selectedEvent) return;
+    if (!user || !selectedEvent) return;
 
-  try {
-    setActionLoading(selectedEvent.id);
-    closeGuestDialog();
+    try {
+      setActionLoading(selectedEvent.id);
+      closeGuestDialog();
 
-    await runTransaction(db, async (transaction) => {
-      const eventRef = doc(db, 'events', selectedEvent.id);
-      const eventDoc = await transaction.get(eventRef);
+      // Calculate total participants (self + selected guests)
+      const totalToAdd = 1 + selectedGuests.size;
 
-      if (!eventDoc.exists()) {
-        throw new Error('Event not found');
-      }
+      // Optimistic UI update
+      setEvents(prev => prev.map(e => 
+        e.id === selectedEvent.id 
+          ? { ...e, participantCount: e.participantCount + totalToAdd }
+          : e
+      ));
+      setMyEvents(prev => new Set([...prev, selectedEvent.id]));
 
-      const eventData = eventDoc.data();
+      await runTransaction(db, async (transaction) => {
+        const eventRef = doc(db, 'events', selectedEvent.id);
+        const eventDoc = await transaction.get(eventRef);
 
-      if (eventData.status !== 'open') {
-        throw new Error('Event is no longer open for registration');
-      }
+        if (!eventDoc.exists()) {
+          throw new Error('Event not found');
+        }
 
-      if (eventData.deadline.toMillis() < Timestamp.now().toMillis()) {
-        throw new Error('Registration deadline has passed');
-      }
+        const eventData = eventDoc.data();
 
-      // Check if parent already joined
-      const participantsRef = collection(db, 'eventParticipants');
-      const existingParentQuery = query(
-        participantsRef,
-        where('eventId', '==', selectedEvent.id),
-        where('playerId', '==', user.uid),
-        where('currentStatus', '==', 'joined')
-      );
-      const existingParentSnapshot = await getDocs(existingParentQuery);
+        if (eventData.status !== 'open') {
+          throw new Error('Event is no longer open for registration');
+        }
 
-      if (!existingParentSnapshot.empty) {
-        throw new Error('You have already joined this event');
-      }
+        if (eventData.deadline.toMillis() <= Timestamp.now().toMillis()) {
+          throw new Error('Registration deadline has passed');
+        }
 
-      // Check which guests are already in the event (added by other parents)
-      const existingGuestsQuery = query(
-        participantsRef,
-        where('eventId', '==', selectedEvent.id),
-        where('currentStatus', '==', 'joined')
-      );
-      const existingGuestsSnapshot = await getDocs(existingGuestsQuery);
+        // Check if already joined
+        const participantsRef = collection(db, 'eventParticipants');
+        const existingQuery = query(
+          participantsRef,
+          where('eventId', '==', selectedEvent.id),
+          where('playerId', '==', user.uid),
+          where('currentStatus', '==', 'joined')
+        );
+        const existingSnapshot = await getDocs(existingQuery);
 
-      // Create a Set of already-joined guest IDs
-      const alreadyJoinedGuestIds = new Set<string>();
-      existingGuestsSnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (data.playerType === 'guest') {
-          alreadyJoinedGuestIds.add(data.playerId);
+        if (!existingSnapshot.empty) {
+          throw new Error('You have already joined this event');
+        }
+
+        const newParticipantCount = (eventData.participantCount || 0) + totalToAdd;
+
+        transaction.update(eventRef, {
+          participantCount: newParticipantCount,
+        });
+
+        // Add parent
+        const parentParticipantRef = doc(collection(db, 'eventParticipants'));
+        transaction.set(parentParticipantRef, {
+          eventId: selectedEvent.id,
+          playerId: user.uid,
+          playerName: user.displayName || user.email?.split('@')[0] || 'Player',
+          playerEmail: user.email || '',
+          playerType: 'regular',
+          joinedAt: Timestamp.now(),
+          currentStatus: 'joined',
+          addedAfterClose: false,
+        });
+
+        // Add selected guests
+        for (const guestId of selectedGuests) {
+          const guest = linkedGuests.find(g => g.guestId === guestId);
+          if (guest) {
+            const guestParticipantRef = doc(collection(db, 'eventParticipants'));
+            transaction.set(guestParticipantRef, {
+              eventId: selectedEvent.id,
+              playerId: guestId,
+              playerName: guest.guestName,
+              playerEmail: '',
+              playerType: 'guest',
+              parentId: user.uid,
+              parentName: user.displayName || user.email?.split('@')[0] || 'Player',
+              joinedAt: Timestamp.now(),
+              currentStatus: 'joined',
+              addedAfterClose: false,
+            });
+          }
         }
       });
 
-      // Filter out guests that are already in the event
-      const guestsToAdd = Array.from(selectedGuests).filter(
-        (guestId) => !alreadyJoinedGuestIds.has(guestId)
-      );
-
-      // Calculate total participants to add (parent + available guests)
-      const totalToAdd = 1 + guestsToAdd.length;
-
-      // Show info if some guests were skipped
-      const skippedCount = selectedGuests.size - guestsToAdd.length;
-      if (skippedCount > 0) {
-        console.log(`Skipped ${skippedCount} guest(s) already in the event`);
-      }
-
-      const newParticipantCount = (eventData.participantCount || 0) + totalToAdd;
-      transaction.update(eventRef, {
-        participantCount: newParticipantCount,
-      });
-
-      // Add parent
-      const parentParticipantRef = doc(collection(db, 'eventParticipants'));
-      transaction.set(parentParticipantRef, {
-        eventId: selectedEvent.id,
-        playerId: user.uid,
-        playerName: user.displayName || user.email?.split('@')[0] || 'Player',
-        playerEmail: user.email || '',
-        playerType: 'regular',
-        joinedAt: Timestamp.now(),
-        currentStatus: 'joined',
-        addedAfterClose: false,
-      });
-
-      // Add only guests that aren't already in the event
-      for (const guestId of guestsToAdd) {
-        const guest = linkedGuests.find((g) => g.guestId === guestId);
-        if (guest) {
-          const guestParticipantRef = doc(collection(db, 'eventParticipants'));
-          transaction.set(guestParticipantRef, {
-            eventId: selectedEvent.id,
-            playerId: guestId,
-            playerName: guest.guestName,
-            playerEmail: '',
-            playerType: 'guest',
-            parentId: user.uid,
-            parentName: user.displayName || user.email?.split('@')[0] || 'Player',
-            joinedAt: Timestamp.now(),
-            currentStatus: 'joined',
-            addedAfterClose: false,
-          });
-        }
-      }
-
-      // Update UI state
-      setEvents((prev) =>
-        prev.map((e) =>
-          e.id === selectedEvent.id
-            ? { ...e, participantCount: e.participantCount + totalToAdd }
-            : e
-        )
-      );
-      setMyEvents((prev) => new Set([...prev, selectedEvent.id]));
-
-      // Show success dialog with appropriate message
-      let guestText = '';
-      if (guestsToAdd.length > 0) {
-        guestText = ` with ${guestsToAdd.length} guest${guestsToAdd.length > 1 ? 's' : ''}`;
-      }
-      
-      let message = `You${guestText} have successfully joined ${selectedEvent.title}!`;
-      
-      if (skippedCount > 0) {
-        message += ` (${skippedCount} guest${skippedCount > 1 ? 's were' : ' was'} already in the event and skipped)`;
-      }
-
-      setSuccessMessage(message);
+      // Show success dialog
+      const guestText = selectedGuests.size > 0 
+        ? ` with ${selectedGuests.size} guest${selectedGuests.size > 1 ? 's' : ''}`
+        : '';
+      setSuccessMessage(`You${guestText} have successfully joined "${selectedEvent.title}"!`);
       setShowSuccessDialog(true);
-    });
-  } catch (error: any) {
-    console.error('Error joining event:', error);
-    fetchEvents(); // Revert optimistic update on error
-    setMessage(error.message || 'Failed to join event');
-    setTimeout(() => setMessage(''), 3000);
-  } finally {
-    setActionLoading(null);
-    setSelectedEvent(null);
-    setSelectedGuests(new Set());
-  }
-};
-
+    } catch (error: any) {
+      console.error('Error joining event:', error);
+      
+      // Revert optimistic update on error
+      fetchEvents();
+      
+      setMessage(error.message || 'Failed to join event');
+      setTimeout(() => setMessage(''), 3000);
+    } finally {
+      setActionLoading(null);
+      setSelectedEvent(null);
+      setSelectedGuests(new Set());
+    }
+  };
 
   const handleJoinEvent = async (eventId: string, eventTitle: string) => {
-    // If player has linked guests, show guest selection dialog
+    // If secretary has linked guests, show guest selection dialog
     if (linkedGuests.length > 0) {
       openGuestDialog(eventId, eventTitle);
     } else {
@@ -536,7 +500,7 @@ export default function PlayerEvents() {
 
   const filteredEvents = getFilteredEvents();
 
-  if (loading || !user || role !== 'player') {
+  if (loading || !user || role !== 'secretary') {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
         <div className="text-center">
@@ -922,7 +886,7 @@ export default function PlayerEvents() {
                     </span>
                   </div>
 
-                  {/* Event Details */}
+                  {/* Event Details - Updated with new financial data */}
                   <div className="bg-gray-50 rounded-xl p-3 sm:p-4 mb-4 border border-gray-200">
                     {event.status === 'open' ? (
                       <div className="grid grid-cols-3 gap-3 sm:gap-4 text-center">
@@ -1010,7 +974,7 @@ export default function PlayerEvents() {
                     )}
 
                     <button
-                      onClick={() => router.push(`/player/event-participants/${event.id}`)}
+                      onClick={() => router.push(`/secretary/event-participants/${event.id}`)}
                       className="flex-1 sm:flex-none px-4 sm:px-6 py-2 sm:py-2.5 bg-white hover:bg-gray-50 text-gray-700 font-semibold rounded-lg border border-gray-200 transition-colors cursor-pointer flex items-center justify-center gap-2 text-sm"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

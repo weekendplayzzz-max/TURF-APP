@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, User as FirebaseUser } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { getSuperAdminEmail, determineUserRole } from '@/lib/roleUtils';
 
 interface User {
@@ -16,8 +16,10 @@ interface User {
 interface AuthContextType {
   user: User | null;
   userEmail: string | null;
-  role: string | null; // Changed from userRole to role
-  superAdminEmail: string | null;
+  role: string | null;
+  isAuthorized: boolean;
+  profileCompleted: boolean;
+  superAdminEmail: string;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
@@ -41,20 +43,12 @@ export const AuthContextProvider = ({ children }: AuthContextProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
+  const [profileCompleted, setProfileCompleted] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
-  const [superAdminEmail, setSuperAdminEmail] = useState<string | null>(null);
+  
+  const superAdminEmail = getSuperAdminEmail();
 
-  // Fetch SuperAdmin email on mount
-  useEffect(() => {
-    const fetchSuperAdminEmail = async () => {
-      const email = await getSuperAdminEmail();
-      setSuperAdminEmail(email);
-      console.log('SuperAdmin email fetched:', email);
-    };
-    fetchSuperAdminEmail();
-  }, []);
-
-  // Main auth state listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       try {
@@ -62,26 +56,82 @@ export const AuthContextProvider = ({ children }: AuthContextProviderProps) => {
           console.log('User signed in:', firebaseUser.uid);
           console.log('User email:', firebaseUser.email);
 
-          // Save user to Firestore if new
+          // Determine role and authorization status (checks both users & authorizedUsers collections)
+          const { role, isAuthorized: authorized } = await determineUserRole(
+            firebaseUser.email || '',
+            firebaseUser.uid
+          );
+
+          console.log('Determined role:', role, 'Authorized:', authorized);
+
+          // If not authorized, sign out immediately
+          if (!authorized || role === 'unauthorized') {
+            console.log('Unauthorized user detected, signing out...');
+            await signOut(auth);
+            setUser(null);
+            setUserEmail(null);
+            setUserRole(null);
+            setIsAuthorized(false);
+            setProfileCompleted(false);
+            setLoading(false);
+            return;
+          }
+
+          // Check if user exists in users collection
           const userRef = doc(db, 'users', firebaseUser.uid);
           const userSnap = await getDoc(userRef);
 
           if (!userSnap.exists()) {
-            // New user - create document with default role
-            console.log('Creating new user document...');
+            // First-time login - check if user data exists in authorizedUsers collection
+            const authRef = collection(db, 'authorizedUsers');
+            const authQuery = query(authRef, where('email', '==', firebaseUser.email));
+            const authSnap = await getDocs(authQuery);
+
+            let appointedBy = null;
+            let appointedByRole = null;
+            let displayNameFromAuth = null;
+            let profileCompletedStatus = false;
+
+            if (!authSnap.empty) {
+              const authData = authSnap.docs[0].data();
+              appointedBy = authData.appointedBy || null;
+              appointedByRole = authData.appointedByRole || null;
+              displayNameFromAuth = authData.displayName || null;
+              profileCompletedStatus = authData.profileCompleted || false;
+              console.log('Found user in authorizedUsers, migrating to users collection');
+            }
+
+            // For players, displayName is null until they complete their profile
+            // For superadmin/secretary/treasurer, use their Google display name
+            const initialDisplayName = role === 'player' 
+              ? displayNameFromAuth 
+              : (firebaseUser.displayName || null);
+
+            // Profile is considered complete for non-players or if displayName exists for players
+            const isProfileComplete = role !== 'player' || (displayNameFromAuth !== null);
+
+            // Create user document in users collection
             await setDoc(userRef, {
               uid: firebaseUser.uid,
               email: firebaseUser.email,
-              displayName: firebaseUser.displayName || 'User',
+              displayName: initialDisplayName,
               photoURL: firebaseUser.photoURL || '',
-              role: 'player', // Default role (will be overridden if SuperAdmin)
-              appointedBy: null,
+              role: role,
+              isAuthorized: true,
+              profileCompleted: isProfileComplete,
+              appointedBy: appointedBy,
+              appointedByRole: appointedByRole,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             });
+
+            console.log('Created new user document with role:', role);
+            setProfileCompleted(isProfileComplete);
           } else {
-            // Existing user - update timestamp
-            console.log('User already exists, updating timestamp...');
+            // Existing user - update timestamp and get profile status
+            const userData = userSnap.data();
+            const isProfileComplete = userData.profileCompleted || false;
+            
             await setDoc(
               userRef,
               {
@@ -89,19 +139,12 @@ export const AuthContextProvider = ({ children }: AuthContextProviderProps) => {
               },
               { merge: true }
             );
+            
+            console.log('Updated existing user timestamp');
+            setProfileCompleted(isProfileComplete);
           }
 
-          // Determine role based on email + role field
-          const role = await determineUserRole(
-  firebaseUser.email || '',
-  firebaseUser.uid,
-  superAdminEmail
-);
-
-
-          console.log('Final determined role:', role);
-
-          // Set state
+          // Set authorized user state
           setUser({
             uid: firebaseUser.uid,
             email: firebaseUser.email,
@@ -110,46 +153,46 @@ export const AuthContextProvider = ({ children }: AuthContextProviderProps) => {
           });
           setUserEmail(firebaseUser.email);
           setUserRole(role);
+          setIsAuthorized(true);
         } else {
           // User signed out
-          console.log('User signed out');
           setUser(null);
           setUserEmail(null);
           setUserRole(null);
+          setIsAuthorized(false);
+          setProfileCompleted(false);
         }
       } catch (error) {
         console.error('Error in onAuthStateChanged:', error);
         setUser(null);
         setUserEmail(null);
         setUserRole(null);
+        setIsAuthorized(false);
+        setProfileCompleted(false);
       } finally {
         setLoading(false);
       }
     });
 
     return () => unsubscribe();
-  }, [superAdminEmail]);
+  }, []);
 
   const signInWithGoogle = async () => {
-  try {
-    console.log('Starting Google sign-in...');
-    const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(auth, provider);
-    console.log('Sign-in completed:', result.user.uid);
-  } catch (error) {
-    const err = error as { code?: string; message?: string };
-    if (err.code === 'auth/popup-closed-by-user') {
-      console.log('Sign-in popup was closed by user');
-      return;
+    try {
+      console.log('Starting Google sign-in...');
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      // Authorization check happens automatically in onAuthStateChanged
+    } catch (error) {
+      const err = error as { code?: string; message?: string };
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        console.log('Sign-in cancelled by user');
+        return;
+      }
+      console.error('Sign-in error:', err.code, err.message);
+      throw error;
     }
-    if (err.code === 'auth/cancelled-popup-request') {
-      console.log('Sign-in was cancelled');
-      return;
-    }
-    console.error('Sign-in error:', err.code, err.message);
-  }
-};
-
+  };
 
   const logout = async () => {
     try {
@@ -158,6 +201,8 @@ export const AuthContextProvider = ({ children }: AuthContextProviderProps) => {
       setUser(null);
       setUserEmail(null);
       setUserRole(null);
+      setIsAuthorized(false);
+      setProfileCompleted(false);
       console.log('Logged out successfully');
     } catch (error) {
       console.error('Logout error:', error);
@@ -167,7 +212,9 @@ export const AuthContextProvider = ({ children }: AuthContextProviderProps) => {
   const value: AuthContextType = {
     user,
     userEmail,
-    role: userRole, // Expose as 'role' not 'userRole'
+    role: userRole,
+    isAuthorized,
+    profileCompleted,
     superAdminEmail,
     loading,
     signInWithGoogle,
@@ -177,15 +224,13 @@ export const AuthContextProvider = ({ children }: AuthContextProviderProps) => {
   return (
     <AuthContext.Provider value={value}>
       {loading ? (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            minHeight: '100vh',
-            backgroundColor: '#f0f0f0',
-          }}
-        >
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          minHeight: '100vh', 
+          backgroundColor: '#f0f0f0' 
+        }}>
           <div style={{ textAlign: 'center' }}>
             <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#333' }}>
               Loading your session...

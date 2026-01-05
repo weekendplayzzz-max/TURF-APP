@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter, useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { db } from '@/lib/firebase';
+import Image from 'next/image';
 import { collection, getDocs, doc, getDoc, Timestamp} from 'firebase/firestore';
 
 interface Participant {
@@ -91,101 +92,177 @@ export default function EventParticipants() {
   };
 
   if (loading || !user || role !== 'treasurer') {
-    return null;
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="text-center">
+          <div className="relative w-16 h-16 mx-auto mb-4">
+            <div className="absolute inset-0 border-4 border-red-600/20 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+          <p className="text-base text-gray-700 font-medium">Loading...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-xl">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-4xl font-bold mb-2">👥 Event Participants</h1>
-              {event && (
-                <p className="text-blue-100 text-base">
-                  {event.title} • {event.date?.toDate().toLocaleDateString('en-IN')} • {event.time}
-                </p>
-              )}
+      <div className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+              <button
+                onClick={() => router.back()}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer flex-shrink-0"
+                title="Go Back"
+              >
+                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+              </button>
+              <div className="w-9 h-9 sm:w-12 sm:h-12 flex-shrink-0">
+                <Image
+                  src="/logo.png"
+                  alt="Art of War Logo"
+                  width={48}
+                  height={48}
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h1 className="text-base sm:text-xl md:text-2xl font-bold text-gray-900 truncate">
+                  Event Participants
+                </h1>
+                {event && (
+                  <p className="text-xs sm:text-sm text-gray-600 truncate">
+                    {event.title} • {event.date?.toDate().toLocaleDateString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric'
+                    })} • {event.time}
+                  </p>
+                )}
+              </div>
             </div>
-            <button
-              onClick={() => router.back()}
-              className="px-6 py-3 bg-white text-blue-600 font-bold rounded-lg hover:bg-blue-50 transition shadow-md"
-            >
-              ← Back
-            </button>
           </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 py-10">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 md:py-10">
         {loadingData ? (
           <div className="flex items-center justify-center py-20">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent mx-auto mb-4"></div>
-              <p className="text-gray-600 text-lg font-medium">Loading participants...</p>
+              <div className="relative w-16 h-16 mx-auto mb-4">
+                <div className="absolute inset-0 border-4 border-red-600/20 rounded-full"></div>
+                <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+              <p className="text-base text-gray-700 font-medium">Loading participants...</p>
             </div>
           </div>
         ) : (
           <>
-            {/* Summary Card */}
-            <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border border-gray-200">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="text-center">
-                  <p className="text-gray-600 text-sm font-medium mb-2">Total Participants</p>
-                  <p className="text-4xl font-bold text-blue-600">{participants.length}</p>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6">
+              <div className="bg-white rounded-2xl shadow-xl p-4 sm:p-6 border border-gray-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-600 mb-1">Total Participants</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-blue-600">{participants.length}</p>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <p className="text-gray-600 text-sm font-medium mb-2">Event Status</p>
-                  <span
-                    className={`inline-block px-6 py-2 rounded-full text-lg font-bold ${
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-xl p-4 sm:p-6 border border-gray-200">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                    event?.status === 'open'
+                      ? 'bg-green-50'
+                      : event?.status === 'closed'
+                      ? 'bg-red-50'
+                      : 'bg-gray-50'
+                  }`}>
+                    <svg className={`w-5 h-5 ${
                       event?.status === 'open'
-                        ? 'bg-green-100 text-green-800'
+                        ? 'text-green-600'
                         : event?.status === 'closed'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}
-                  >
-                    {event?.status?.toUpperCase()}
-                  </span>
+                        ? 'text-red-600'
+                        : 'text-gray-600'
+                    }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-600 mb-1">Event Status</p>
+                    <span
+                      className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${
+                        event?.status === 'open'
+                          ? 'bg-green-50 text-green-700 border-green-200'
+                          : event?.status === 'closed'
+                          ? 'bg-red-50 text-red-700 border-red-200'
+                          : 'bg-gray-50 text-gray-700 border-gray-200'
+                      }`}
+                    >
+                      {event?.status?.toUpperCase()}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-center">
-                  <p className="text-gray-600 text-sm font-medium mb-2">Event Date</p>
-                  <p className="text-xl font-bold text-gray-800">
-                    {event?.date?.toDate().toLocaleDateString('en-IN', {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  </p>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow-xl p-4 sm:p-6 border border-gray-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-gray-600 mb-1">Event Date</p>
+                    <p className="text-sm sm:text-base font-bold text-purple-600">
+                      {event?.date?.toDate().toLocaleDateString('en-IN', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Participants List */}
             {participants.length === 0 ? (
-              <div className="bg-white p-12 rounded-xl text-center shadow-lg border border-gray-200">
-                <div className="text-6xl mb-4">👥</div>
-                <p className="text-xl text-gray-600 font-semibold">No participants yet</p>
-                <p className="text-gray-500 mt-2">
+              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-8 sm:p-12 text-center">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                  <svg className="w-8 h-8 sm:w-10 sm:h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <p className="text-lg sm:text-xl font-bold text-gray-900 mb-2">No participants yet</p>
+                <p className="text-sm sm:text-base text-gray-600">
                   {event?.status === 'open'
                     ? 'Players can join this event until the deadline'
                     : 'No players joined this event'}
                 </p>
               </div>
             ) : (
-              <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full">
-                    <thead className="bg-blue-600 text-white">
+                    <thead className="bg-red-600 text-white">
                       <tr>
-                        <th className="px-6 py-4 text-left text-sm font-bold uppercase">#</th>
-                        <th className="px-6 py-4 text-left text-sm font-bold uppercase">
+                        <th className="px-4 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-bold">#</th>
+                        <th className="px-4 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-bold">
                           Player Name
                         </th>
-                        <th className="px-6 py-4 text-left text-sm font-bold uppercase">Email</th>
-                        <th className="px-6 py-4 text-left text-sm font-bold uppercase">
+                        <th className="px-4 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-bold hidden md:table-cell">Email</th>
+                        <th className="px-4 sm:px-6 py-3 sm:py-4 text-left text-xs sm:text-sm font-bold">
                           Joined On
                         </th>
                       </tr>
@@ -194,30 +271,43 @@ export default function EventParticipants() {
                       {participants.map((participant, index) => (
                         <tr
                           key={participant.id}
-                          className="hover:bg-blue-50 transition"
+                          className={`transition-colors ${
+                            index % 2 === 0 ? 'bg-white hover:bg-gray-50' : 'bg-gray-50 hover:bg-gray-100'
+                          }`}
                         >
-                          <td className="px-6 py-4 text-gray-900 font-semibold">
+                          <td className="px-4 sm:px-6 py-3 sm:py-4 text-gray-900 font-semibold text-sm">
                             {index + 1}
                           </td>
-                          <td className="px-6 py-4">
-                            <div className="flex items-center">
-                              <div className="w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold mr-3">
+                          <td className="px-4 sm:px-6 py-3 sm:py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-red-600 text-white rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">
                                 {participant.playerName.charAt(0).toUpperCase()}
                               </div>
-                              <span className="text-gray-900 font-semibold">
-                                {participant.playerName}
-                              </span>
+                              <div className="flex-1 min-w-0">
+                                <span className="text-sm sm:text-base text-gray-900 font-semibold block truncate">
+                                  {participant.playerName}
+                                </span>
+                                <span className="text-xs text-gray-500 md:hidden block truncate">
+                                  {participant.playerEmail}
+                                </span>
+                              </div>
                             </div>
                           </td>
-                          <td className="px-6 py-4 text-gray-600">{participant.playerEmail}</td>
-                          <td className="px-6 py-4 text-gray-600">
+                          <td className="px-4 sm:px-6 py-3 sm:py-4 text-sm text-gray-600 hidden md:table-cell">
+                            {participant.playerEmail}
+                          </td>
+                          <td className="px-4 sm:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-600 whitespace-nowrap">
                             {participant.joinedAt?.toDate().toLocaleDateString('en-IN', {
                               day: 'numeric',
                               month: 'short',
                               year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
                             })}
+                            <span className="block text-xs text-gray-500 mt-0.5">
+                              {participant.joinedAt?.toDate().toLocaleTimeString('en-IN', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
                           </td>
                         </tr>
                       ))}
@@ -229,6 +319,36 @@ export default function EventParticipants() {
           </>
         )}
       </div>
+
+      <style jsx>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .animate-fadeIn {
+          animation: fadeIn 0.2s ease-out;
+        }
+
+        .animate-slideUp {
+          animation: slideUp 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 }
