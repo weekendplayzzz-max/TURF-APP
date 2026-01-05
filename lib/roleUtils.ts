@@ -10,7 +10,7 @@ export const getSuperAdminEmail = () => {
 /**
  * Check if email is authorized in BOTH users and authorizedUsers collections
  */
-export const isEmailAuthorized = async (userEmail) => {
+export const isEmailAuthorized = async (userEmail: string): Promise<boolean> => {
   if (!userEmail) return false;
 
   try {
@@ -50,7 +50,7 @@ export const isEmailAuthorized = async (userEmail) => {
 /**
  * Get user role from authorizedUsers collection (for first-time login)
  */
-const getRoleFromAuthorizedUsers = async (userEmail) => {
+const getRoleFromAuthorizedUsers = async (userEmail: string): Promise<string | null> => {
   try {
     const authRef = collection(db, 'authorizedUsers');
     const q = query(authRef, where('email', '==', userEmail));
@@ -70,7 +70,10 @@ const getRoleFromAuthorizedUsers = async (userEmail) => {
 /**
  * Determine user role with hybrid authorization check
  */
-export const determineUserRole = async (userEmail, userUid) => {
+export const determineUserRole = async (
+  userEmail: string, 
+  userUid: string
+): Promise<{ role: string; isAuthorized: boolean }> => {
   try {
     // Check SuperAdmin first
     if (userEmail && userEmail === SUPER_ADMIN_EMAIL) {
@@ -116,11 +119,11 @@ export const determineUserRole = async (userEmail, userUid) => {
  * Add authorized user (called by SuperAdmin/Secretary)
  */
 export const addAuthorizedUser = async (
-  email,
-  role,
-  appointedBy,
-  appointedByRole
-) => {
+  email: string,
+  role: string,
+  appointedBy: string,
+  appointedByRole: string
+): Promise<{ success: boolean; message: string }> => {
   try {
     // Validate permissions
     if (role === 'secretary' || role === 'treasurer') {
