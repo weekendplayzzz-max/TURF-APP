@@ -15,14 +15,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Role-Based Auth App',
-  description: 'Secure authentication with role-based access',
+  title: 'Turf Management',
+  description: 'Weekend Playzz Turf Management',
   manifest: '/manifest.json',
   themeColor: '#000000',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Role-Based Auth App',
+    title: 'Weekend Playzz',
   },
 };
 
