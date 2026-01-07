@@ -4,16 +4,102 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
+import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+
+interface Statistics {
+  eventsRegistered: number;
+  eventsAttended: number;
+  totalPayments: number;
+}
 
 export default function PlayerInfo() {
   const { role, loading, user } = useAuth();
   const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
+  const [statistics, setStatistics] = useState<Statistics>({
+    eventsRegistered: 0,
+    eventsAttended: 0,
+    totalPayments: 0,
+  });
+  const [loadingStats, setLoadingStats] = useState(true);
 
   useEffect(() => {
     if (loading) return;
     if (!user || role !== 'player') router.push('/login');
   }, [role, loading, user, router]);
+
+  // Fetch player statistics
+  useEffect(() => {
+    const fetchStatistics = async () => {
+      if (!user) return;
+
+      try {
+        setLoadingStats(true);
+
+        // Query eventParticipants collection for this player
+        const participantsRef = collection(db, 'eventParticipants');
+        const playerQuery = query(
+          participantsRef,
+          where('playerId', '==', user.uid),
+          where('currentStatus', '==', 'joined')
+        );
+        const participantsSnapshot = await getDocs(playerQuery);
+
+        // Get unique event IDs that the player has joined
+        const eventIds = new Set<string>();
+        participantsSnapshot.forEach((doc) => {
+          const data = doc.data();
+          eventIds.add(data.eventId);
+        });
+
+        const eventsRegistered = eventIds.size;
+
+        // Fetch events to determine which are past (attended)
+        const eventsRef = collection(db, 'events');
+        const eventsSnapshot = await getDocs(eventsRef);
+        
+        let eventsAttended = 0;
+        let totalPayments = 0;
+
+        eventsSnapshot.forEach((doc) => {
+          const data = doc.data();
+          const eventId = doc.id;
+          
+          // Check if player joined this event
+          if (eventIds.has(eventId)) {
+            const eventDate = data.date as Timestamp;
+            const now = Timestamp.now();
+
+            // Count as attended if event date has passed
+            if (eventDate.toMillis() < now.toMillis()) {
+              eventsAttended++;
+            }
+
+            // Calculate payments from totalCollected if event is closed/locked
+            if (data.status !== 'open' && data.participantCount > 0) {
+              const perPlayerAmount = Math.ceil(data.totalAmount / data.participantCount);
+              totalPayments += perPlayerAmount;
+            }
+          }
+        });
+
+        setStatistics({
+          eventsRegistered,
+          eventsAttended,
+          totalPayments,
+        });
+      } catch (error) {
+        console.error('Error fetching statistics:', error);
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+
+    if (role === 'player' && user) {
+      fetchStatistics();
+    }
+  }, [user, role]);
 
   if (loading || !user || role !== 'player') {
     return (
@@ -84,7 +170,7 @@ export default function PlayerInfo() {
                     </div>
                   )}
                   
-                  {/* Verified Badge - Like Facebook/Twitter */}
+                  {/* Verified Badge */}
                   <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5">
                     <svg 
                       className="w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7" 
@@ -163,7 +249,6 @@ export default function PlayerInfo() {
                   <label className="block text-sm font-bold text-gray-700 mb-2">Member Since</label>
                   <p className="text-sm text-gray-900 py-2 sm:py-2.5">
                    {new Date((user as any)?.metadata?.creationTime || Date.now()).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-
                   </p>
                 </div>
               </div>
@@ -187,21 +272,35 @@ export default function PlayerInfo() {
           {/* Statistics Card */}
           <div className="bg-white rounded-xl sm:rounded-2xl shadow-xl border border-gray-200 p-4 sm:p-6 md:p-8">
             <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-4 sm:mb-6">Account Statistics</h3>
-            <div className="grid grid-cols-3 gap-3 sm:gap-6">
-              <div className="text-center p-3 sm:p-6 bg-gray-50 rounded-lg sm:rounded-xl border border-gray-200">
-                <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-1 sm:mb-2">0</p>
-                <p className="text-xs sm:text-sm text-gray-600 font-medium">Events Registered</p>
+            {loadingStats ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="relative w-12 h-12">
+                  <div className="absolute inset-0 border-4 border-red-600/20 rounded-full"></div>
+                  <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                </div>
               </div>
-              <div className="text-center p-3 sm:p-6 bg-gray-50 rounded-lg sm:rounded-xl border border-gray-200">
-                <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-1 sm:mb-2">0</p>
-                <p className="text-xs sm:text-sm text-gray-600 font-medium">Events Attended</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-3 sm:gap-6">
+                <div className="text-center p-3 sm:p-6 bg-gray-50 rounded-lg sm:rounded-xl border border-gray-200">
+                  <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-1 sm:mb-2">
+                    {statistics.eventsRegistered}
+                  </p>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Events Registered</p>
+                </div>
+                <div className="text-center p-3 sm:p-6 bg-gray-50 rounded-lg sm:rounded-xl border border-gray-200">
+                  <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-1 sm:mb-2">
+                    {statistics.eventsAttended}
+                  </p>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Events Attended</p>
+                </div>
+                <div className="text-center p-3 sm:p-6 bg-gray-50 rounded-lg sm:rounded-xl border border-gray-200">
+                  <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-1 sm:mb-2">
+                    ₹{statistics.totalPayments.toLocaleString()}
+                  </p>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Total Payments</p>
+                </div>
               </div>
-              <div className="text-center p-3 sm:p-6 bg-gray-50 rounded-lg sm:rounded-xl border border-gray-200">
-                <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-1 sm:mb-2">0</p>
-                <p className="text-xs sm:text-sm text-gray-600 font-medium">Total Payments</p>
-             
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Security Card */}
@@ -225,6 +324,5 @@ export default function PlayerInfo() {
         </div>
       </div>
     </div>
-        
   );
 }
