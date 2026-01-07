@@ -285,13 +285,13 @@ export default function PlayerInfo() {
                   <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-1 sm:mb-2">
                     {statistics.eventsRegistered}
                   </p>
-                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Events Registered</p>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Turfs Registered</p>
                 </div>
                 <div className="text-center p-3 sm:p-6 bg-gray-50 rounded-lg sm:rounded-xl border border-gray-200">
                   <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-1 sm:mb-2">
                     {statistics.eventsAttended}
                   </p>
-                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Events Attended</p>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Turfs Attended</p>
                 </div>
                 <div className="text-center p-3 sm:p-6 bg-gray-50 rounded-lg sm:rounded-xl border border-gray-200">
                   <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-1 sm:mb-2">
