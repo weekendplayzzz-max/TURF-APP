@@ -158,7 +158,7 @@ export default function PlayerTeamFund() {
   useEffect(() => {
     if (role !== 'player') return;
 
-    const incomesRef = collection(db, 'incomes');
+    const incomesRef = collection(db, 'income');
     const incomesQuery = query(incomesRef, orderBy('dateReceived', 'desc'));
 
     const unsubscribeIncomes = onSnapshot(
