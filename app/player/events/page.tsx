@@ -747,10 +747,10 @@ export default function PlayerEvents() {
               </div>
               <div>
                 <h1 className="text-base sm:text-xl md:text-2xl font-bold text-gray-900">
-                  Events
+                  Turfs
                 </h1>
                 <p className="text-xs sm:text-sm text-gray-600 hidden sm:block">
-                  Browse and join upcoming events
+                  Browse and join upcoming Turfs
                 </p>
               </div>
             </div>
@@ -811,7 +811,7 @@ export default function PlayerEvents() {
                 <div className="absolute inset-0 border-4 border-red-600/20 rounded-full"></div>
                 <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
               </div>
-              <p className="text-base text-gray-700 font-medium">Loading events...</p>
+              <p className="text-base text-gray-700 font-medium">Loading Turfs...</p>
             </div>
           </div>
         ) : filteredEvents.length === 0 ? (
@@ -823,17 +823,17 @@ export default function PlayerEvents() {
             </div>
             <p className="text-lg sm:text-xl font-bold text-gray-900 mb-2">
               {filter === 'upcoming'
-                ? 'No upcoming events'
+                ? 'No upcoming Turfs'
                 : filter === 'joined'
-                ? "You haven't joined any events yet"
-                : 'No past events'}
+                ? "You haven't joined any Turfs yet"
+                : 'No past Turfs'}
             </p>
             <p className="text-sm sm:text-base text-gray-600">
               {filter === 'upcoming'
-                ? 'Check back later for new events'
+                ? 'Check back later for new Turfs'
                 : filter === 'joined'
-                ? 'Join an upcoming event to get started'
-                : 'Your event history will appear here'}
+                ? 'Join an upcoming Turf to get started'
+                : 'Your Turf history will appear here'}
             </p>
           </div>
         ) : (
