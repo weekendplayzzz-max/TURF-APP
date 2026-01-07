@@ -332,7 +332,7 @@ export default function MyPayments() {
             </p>
             <p className="text-sm sm:text-base text-gray-600">
               {filter === 'all'
-                ? 'Join events to see your payment history'
+                ? 'Join Turfs to see your payment history'
                 : filter === 'paid'
                 ? 'Your paid payments will appear here'
                 : 'All caught up! No pending payments'}
@@ -459,7 +459,7 @@ export default function MyPayments() {
                   {eventPayments.length > 1 && (
                     <div className="mt-4 bg-blue-50 rounded-xl p-3 sm:p-4 border-2 border-blue-200">
                       <div className="flex items-center justify-between flex-wrap gap-2">
-                        <span className="text-sm font-bold text-blue-900">Event Total:</span>
+                        <span className="text-sm font-bold text-blue-900">Turf Total:</span>
                         <div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm font-bold flex-wrap">
                           <span className="text-gray-700">Due: ₹{totalEventDue}</span>
                           <span className="text-green-600">Paid: ₹{totalEventPaid}</span>
