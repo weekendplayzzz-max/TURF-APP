@@ -58,7 +58,7 @@ export default function AddIncome() {
     setShowSuccessDialog(false);
     setSuccessMessage('');
     // Redirect to view income page
-    router.push('/treasurer/view-income');
+    router.push('/treasurer/add-income');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -232,90 +232,91 @@ export default function AddIncome() {
          
 
           <form onSubmit={handleSubmit}>
-            {/* Income Name */}
-            <div className="mb-6">
-              <label htmlFor="incomeName" className="block text-gray-900 font-bold mb-2 text-sm sm:text-base">
-                Income Name <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                id="incomeName"
-                value={incomeName}
-                onChange={(e) => setIncomeName(e.target.value)}
-                placeholder="e.g., Annual Sponsorship from XYZ Corp"
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm sm:text-base"
-                required
-              />
-            </div>
+{/* Income Name */}
+<div className="mb-6">
+  <label htmlFor="incomeName" className="block text-gray-900 font-bold mb-2 text-sm sm:text-base">
+    Income Name <span className="text-red-500">*</span>
+  </label>
+  <input
+    type="text"
+    id="incomeName"
+    value={incomeName}
+    onChange={(e) => setIncomeName(e.target.value)}
+    placeholder="e.g., Annual Sponsorship from XYZ Corp"
+    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm sm:text-base text-black"
+    required
+  />
+</div>
 
-            {/* Income Source */}
-            <div className="mb-6">
-              <label htmlFor="incomeSource" className="block text-gray-900 font-bold mb-2 text-sm sm:text-base">
-                Income Source <span className="text-red-500">*</span>
-              </label>
-              <select
-                id="incomeSource"
-                value={incomeSource}
-                onChange={(e) => setIncomeSource(e.target.value as any)}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm sm:text-base bg-white"
-                required
-              >
-                <option value="sponsorship">🏢 Sponsorship</option>
-                <option value="donation">🎁 Donation</option>
-                <option value="membership_fees">👥 Membership Fees</option>
-                <option value="fundraising">📈 Fundraising</option>
-                <option value="other">📦 Other</option>
-              </select>
-            </div>
+{/* Income Source */}
+<div className="mb-6">
+  <label htmlFor="incomeSource" className="block text-gray-900 font-bold mb-2 text-sm sm:text-base">
+    Income Source <span className="text-red-500">*</span>
+  </label>
+  <select
+    id="incomeSource"
+    value={incomeSource}
+    onChange={(e) => setIncomeSource(e.target.value as 'sponsorship' | 'donation' | 'membership_fees' | 'fundraising' | 'other')}
+    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm sm:text-base bg-white text-black"
+    required
+  >
+    <option value="sponsorship">🏢 Sponsorship</option>
+    <option value="donation">🎁 Donation</option>
+    <option value="membership_fees">👥 Membership Fees</option>
+    <option value="fundraising">📈 Fundraising</option>
+    <option value="other">📦 Other</option>
+  </select>
+</div>
 
-            {/* Amount */}
-            <div className="mb-6">
-              <label htmlFor="amount" className="block text-gray-900 font-bold mb-2 text-sm sm:text-base">
-                Amount Received (₹) <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="number"
-                id="amount"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0"
-                min="1"
-                step="1"
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm sm:text-base"
-                required
-              />
-            </div>
+{/* Amount */}
+<div className="mb-6">
+  <label htmlFor="amount" className="block text-gray-900 font-bold mb-2 text-sm sm:text-base">
+    Amount Received (₹) <span className="text-red-500">*</span>
+  </label>
+  <input
+    type="number"
+    id="amount"
+    value={amount}
+    onChange={(e) => setAmount(e.target.value)}
+    placeholder="0"
+    min="1"
+    step="1"
+    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm sm:text-base text-black"
+    required
+  />
+</div>
 
-            {/* Date Received */}
-            <div className="mb-6">
-              <label htmlFor="dateReceived" className="block text-gray-900 font-bold mb-2 text-sm sm:text-base">
-                Date Received <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="date"
-                id="dateReceived"
-                value={dateReceived}
-                onChange={(e) => setDateReceived(e.target.value)}
-                max={new Date().toISOString().split('T')[0]}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm sm:text-base"
-                required
-              />
-            </div>
+{/* Date Received */}
+<div className="mb-6">
+  <label htmlFor="dateReceived" className="block text-gray-900 font-bold mb-2 text-sm sm:text-base">
+    Date Received <span className="text-red-500">*</span>
+  </label>
+  <input
+    type="date"
+    id="dateReceived"
+    value={dateReceived}
+    onChange={(e) => setDateReceived(e.target.value)}
+    max={new Date().toISOString().split('T')[0]}
+    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm sm:text-base text-black"
+    required
+  />
+</div>
 
-            {/* Description */}
-            <div className="mb-6">
-              <label htmlFor="description" className="block text-gray-900 font-bold mb-2 text-sm sm:text-base">
-                Description <span className="text-gray-500 text-xs sm:text-sm">(Optional)</span>
-              </label>
-              <textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Additional details about this income..."
-                rows={4}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm sm:text-base"
-              />
-            </div>
+{/* Description */}
+<div className="mb-6">
+  <label htmlFor="description" className="block text-gray-900 font-bold mb-2 text-sm sm:text-base">
+    Description <span className="text-gray-500 text-xs sm:text-sm">(Optional)</span>
+  </label>
+  <textarea
+    id="description"
+    value={description}
+    onChange={(e) => setDescription(e.target.value)}
+    placeholder="Additional details about this income..."
+    rows={4}
+    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-green-500 focus:outline-none text-sm sm:text-base text-black"
+  />
+</div>
+
 
             {/* Buttons */}
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">

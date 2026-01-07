@@ -1,5 +1,6 @@
 'use client';
 
+
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -7,6 +8,7 @@ import { db } from '@/lib/firebase';
 import Image from 'next/image';
 import { collection, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
 import { getFinancialSummary } from '@/lib/eventManagement';
+
 
 interface Expense {
   id: string;
@@ -21,6 +23,7 @@ interface Expense {
   createdAt: Timestamp;
 }
 
+
 interface Event {
   id: string;
   title: string;
@@ -28,17 +31,32 @@ interface Event {
   time: string;
   totalAmount: number;
   participantCount: number;
-  totalCollected: number; // Real money collected
-  eventPaidToVendor: boolean; // Payment status
+  totalCollected: number;
+  eventPaidToVendor: boolean;
   status: 'open' | 'closed' | 'locked';
 }
+
+
+interface Income {
+  id: string;
+  incomeName: string;
+  amount: number;
+  dateReceived: Timestamp;
+  incomeSource: 'sponsorship' | 'donation' | 'membership_fees' | 'fundraising' | 'other';
+  description: string | null;
+  createdByEmail: string;
+  createdAt: Timestamp;
+}
+
 
 export default function PlayerTeamFund() {
   const { role, loading, user } = useAuth();
   const router = useRouter();
 
+
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
+  const [incomes, setIncomes] = useState<Income[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [financialSummary, setFinancialSummary] = useState({
@@ -47,11 +65,13 @@ export default function PlayerTeamFund() {
     availableBalance: 0,
   });
 
+
   useEffect(() => {
     if (!loading && role !== 'player') {
       router.push('/login');
     }
   }, [role, loading, router]);
+
 
   // Real-time listener for expenses
   useEffect(() => {
@@ -91,6 +111,7 @@ export default function PlayerTeamFund() {
     return () => unsubscribeExpenses();
   }, [role]);
 
+
   // Real-time listener for events
   useEffect(() => {
     if (role !== 'player') return;
@@ -106,7 +127,6 @@ export default function PlayerTeamFund() {
           const data = docSnap.data();
           const totalCollected = data.totalCollected || 0;
 
-          // Only include closed/locked events with collected money
           if ((data.status === 'closed' || data.status === 'locked') && totalCollected > 0) {
             eventsList.push({
               id: docSnap.id,
@@ -133,7 +153,43 @@ export default function PlayerTeamFund() {
     return () => unsubscribeEvents();
   }, [role]);
 
-  // Fetch financial summary (refresh when expenses or events change)
+
+  // Real-time listener for incomes
+  useEffect(() => {
+    if (role !== 'player') return;
+
+    const incomesRef = collection(db, 'incomes');
+    const incomesQuery = query(incomesRef, orderBy('dateReceived', 'desc'));
+
+    const unsubscribeIncomes = onSnapshot(
+      incomesQuery,
+      (snapshot) => {
+        const incomesList: Income[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          incomesList.push({
+            id: docSnap.id,
+            incomeName: data.incomeName,
+            amount: data.amount,
+            dateReceived: data.dateReceived,
+            incomeSource: data.incomeSource,
+            description: data.description || null,
+            createdByEmail: data.createdByEmail,
+            createdAt: data.createdAt,
+          });
+        });
+        setIncomes(incomesList);
+      },
+      (error) => {
+        console.error('Error fetching incomes:', error);
+      }
+    );
+
+    return () => unsubscribeIncomes();
+  }, [role]);
+
+
+  // Fetch financial summary
   useEffect(() => {
     if (role !== 'player') return;
 
@@ -147,19 +203,21 @@ export default function PlayerTeamFund() {
     };
 
     fetchSummary();
-  }, [role, expenses, events]);
+  }, [role, expenses, events, incomes]);
+
 
   const toggleEvent = (eventId: string) => {
     setExpandedEvent(expandedEvent === eventId ? null : eventId);
   };
 
-  // Calculate per player amount with ₹100 minimum
+
   const calculatePerPlayerAmount = (totalAmount: number, participantCount: number): number => {
     if (participantCount === 0) return 0;
     const baseAmount = totalAmount / participantCount;
     const roundedAmount = Math.ceil(baseAmount / 10) * 10;
-    return Math.max(roundedAmount, 100); // Minimum ₹100
+    return Math.max(roundedAmount, 100);
   };
+
 
   if (loading || !user || role !== 'player') {
     return (
@@ -175,8 +233,10 @@ export default function PlayerTeamFund() {
     );
   }
 
+
   const eventExpenses = expenses.filter(e => e.expenseType === 'event_payment');
   const otherExpenses = expenses.filter(e => e.expenseType === 'other_expense');
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
@@ -240,7 +300,7 @@ export default function PlayerTeamFund() {
                 </div>
                 <p className="text-xs text-gray-600 mb-1">Total Income</p>
                 <p className="text-2xl sm:text-3xl font-bold text-gray-900">₹{financialSummary.totalIncome.toLocaleString()}</p>
-                <p className="text-xs text-gray-500 mt-1">{events.length} events</p>
+                <p className="text-xs text-gray-500 mt-1">{events.length} events + {incomes.length} direct</p>
               </div>
 
               <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-4 sm:p-6 text-center">
@@ -266,13 +326,11 @@ export default function PlayerTeamFund() {
               </div>
             </div>
 
-          
-
-            {/* Income History */}
+            {/* Income History from Events */}
             {events.length > 0 && (
               <div className="bg-white rounded-2xl shadow-xl border border-gray-200 mb-6 overflow-hidden">
                 <div className="px-4 sm:px-6 py-4 bg-gray-900 text-white">
-                  <h2 className="text-lg sm:text-xl font-bold">Income History</h2>
+                  <h2 className="text-lg sm:text-xl font-bold">Event Income</h2>
                   <p className="text-xs sm:text-sm text-gray-300 mt-1">
                     Money collected from events (₹100 min per player)
                   </p>
@@ -392,6 +450,133 @@ export default function PlayerTeamFund() {
                               </div>
                             </div>
                           </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Direct Income (Sponsorships, Donations, etc.) */}
+            {incomes.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 mb-6 overflow-hidden">
+                <div className="px-4 sm:px-6 py-4 bg-gradient-to-r from-green-600 to-green-700 text-white">
+                  <h2 className="text-lg sm:text-xl font-bold">Direct Income</h2>
+                  <p className="text-xs sm:text-sm text-green-100 mt-1">
+                    Sponsorships, donations & other non-event income
+                  </p>
+                </div>
+
+                {/* Desktop Table View */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-900 text-white">
+                      <tr>
+                        <th className="px-4 md:px-6 py-3 md:py-4 text-left text-xs md:text-sm font-bold uppercase">Source</th>
+                        <th className="px-4 md:px-6 py-3 md:py-4 text-left text-xs md:text-sm font-bold uppercase">Date</th>
+                        <th className="px-4 md:px-6 py-3 md:py-4 text-left text-xs md:text-sm font-bold uppercase">Income Name</th>
+                        <th className="px-4 md:px-6 py-3 md:py-4 text-left text-xs md:text-sm font-bold uppercase">Description</th>
+                        <th className="px-4 md:px-6 py-3 md:py-4 text-right text-xs md:text-sm font-bold uppercase">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {incomes.map((income) => {
+                        const sourceIcons = {
+                          sponsorship: '🏢',
+                          donation: '🎁',
+                          membership_fees: '👥',
+                          fundraising: '📈',
+                          other: '📦',
+                        };
+
+                        const sourceLabels = {
+                          sponsorship: 'Sponsorship',
+                          donation: 'Donation',
+                          membership_fees: 'Membership',
+                          fundraising: 'Fundraising',
+                          other: 'Other',
+                        };
+
+                        return (
+                          <tr key={income.id} className="hover:bg-gray-50 transition">
+                            <td className="px-4 md:px-6 py-3 md:py-4">
+                              <span className="px-2 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                                {sourceIcons[income.incomeSource]} {sourceLabels[income.incomeSource]}
+                              </span>
+                            </td>
+                            <td className="px-4 md:px-6 py-3 md:py-4 text-gray-900 font-semibold text-sm">
+                              {income.dateReceived.toDate().toLocaleDateString('en-IN', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </td>
+                            <td className="px-4 md:px-6 py-3 md:py-4">
+                              <p className="text-gray-900 font-semibold text-sm">{income.incomeName}</p>
+                            </td>
+                            <td className="px-4 md:px-6 py-3 md:py-4 text-gray-600 text-sm">
+                              {income.description ? (
+                                income.description
+                              ) : (
+                                <span className="italic text-gray-400">No description</span>
+                              )}
+                            </td>
+                            <td className="px-4 md:px-6 py-3 md:py-4 text-right">
+                              <span className="text-green-600 font-bold text-base">
+                                ₹{income.amount.toLocaleString()}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Card View */}
+                <div className="sm:hidden divide-y divide-gray-200">
+                  {incomes.map((income) => {
+                    const sourceIcons = {
+                      sponsorship: '🏢',
+                      donation: '🎁',
+                      membership_fees: '👥',
+                      fundraising: '📈',
+                      other: '📦',
+                    };
+
+                    const sourceLabels = {
+                      sponsorship: 'Sponsorship',
+                      donation: 'Donation',
+                      membership_fees: 'Membership Fees',
+                      fundraising: 'Fundraising',
+                      other: 'Other',
+                    };
+
+                    return (
+                      <div key={income.id} className="p-4">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1 min-w-0 mr-3">
+                            <p className="text-gray-900 font-bold text-sm mb-1">{income.incomeName}</p>
+                            <p className="text-xs text-gray-600 mb-2">
+                              {income.dateReceived.toDate().toLocaleDateString('en-IN', {
+                                day: 'numeric',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                            </p>
+                            <span className="inline-block px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded">
+                              {sourceIcons[income.incomeSource]} {sourceLabels[income.incomeSource]}
+                            </span>
+                          </div>
+                          <span className="text-green-600 font-bold text-base whitespace-nowrap">
+                            ₹{income.amount.toLocaleString()}
+                          </span>
+                        </div>
+                        {income.description && (
+                          <p className="text-xs text-gray-600 bg-gray-50 rounded p-2 mt-2">
+                            {income.description}
+                          </p>
                         )}
                       </div>
                     );
