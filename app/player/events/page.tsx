@@ -659,7 +659,7 @@ export default function PlayerEvents() {
                 </svg>
               </div>
               <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
-                Leave Event?
+                Leave Turf?
               </h3>
               <p className="text-sm sm:text-base text-gray-600">
                 Are you sure you want to leave
@@ -680,7 +680,7 @@ export default function PlayerEvents() {
                 disabled={actionLoading === selectedEvent.id}
                 className="w-full px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {actionLoading === selectedEvent.id ? 'Leaving...' : 'Yes, Leave Event'}
+                {actionLoading === selectedEvent.id ? 'Leaving...' : 'Yes, Leave Turf'}
               </button>
               <button
                 onClick={closeLeaveDialog}
@@ -995,7 +995,7 @@ export default function PlayerEvents() {
                         disabled={actionLoading === event.id}
                         className="flex-1 sm:flex-none px-4 sm:px-6 py-2 sm:py-2.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                       >
-                        {actionLoading === event.id ? 'Joining...' : 'Join Event'}
+                        {actionLoading === event.id ? 'Joining...' : 'Join Turf'}
                       </button>
                     )}
 
