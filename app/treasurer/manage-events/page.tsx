@@ -14,6 +14,7 @@ import {
   checkAndAutoCloseEvents,
   fetchParticipantCounts,
   updateEventTotalCollected,
+  deleteEventHelper,
 } from '@/lib/eventManagement';
 
 // Import shared types instead of defining them here
@@ -227,49 +228,29 @@ export default function ManageEvents() {
     setShowDeleteDialog(true);
   };
 
-  const confirmDelete = async () => {
+    const confirmDelete = async () => {
     if (!eventToDelete) return;
 
     try {
       setDeletingEvent(true);
       setShowDeleteDialog(false);
 
-      // Delete all event participants
-      const participantsRef = collection(db, 'eventParticipants');
-      const participantsQuery = query(participantsRef, where('eventId', '==', eventToDelete.id));
-      const participantsSnapshot = await getDocs(participantsQuery);
-      
-      const participantDeletePromises = participantsSnapshot.docs.map((docSnap) => 
-        deleteDoc(doc(db, 'eventParticipants', docSnap.id))
-      );
-      await Promise.all(participantDeletePromises);
+      // Use nuclear delete helper (batch atomic operation)
+      const result = await deleteEventHelper(eventToDelete.id);
 
-      // Delete all event expenses (eventExpenses collection)
-      const eventExpensesRef = collection(db, 'eventExpenses');
-      const eventExpensesQuery = query(eventExpensesRef, where('eventId', '==', eventToDelete.id));
-      const eventExpensesSnapshot = await getDocs(eventExpensesQuery);
-      
-      const eventExpenseDeletePromises = eventExpensesSnapshot.docs.map((docSnap) => 
-        deleteDoc(doc(db, 'eventExpenses', docSnap.id))
-      );
-      await Promise.all(eventExpenseDeletePromises);
-
-      // Delete from expenses collection (where expense is related to this event payment)
-      const expensesRef = collection(db, 'expenses');
-      const expensesQuery = query(expensesRef, where('eventId', '==', eventToDelete.id));
-      const expensesSnapshot = await getDocs(expensesQuery);
-      
-      const expenseDeletePromises = expensesSnapshot.docs.map((docSnap) => 
-        deleteDoc(doc(db, 'expenses', docSnap.id))
-      );
-      await Promise.all(expenseDeletePromises);
-
-      // Delete the event itself
-      await deleteDoc(doc(db, 'events', eventToDelete.id));
-
-      setSuccessMessage(`Event "${eventToDelete.title}" and all its data deleted successfully!`);
-      setShowSuccessDialog(true);
-      await fetchEvents();
+      if (result.success) {
+        setSuccessMessage(
+          `Event "${eventToDelete.title}" deleted successfully!\n` +
+          `Removed: ${result.deletedCounts.participants} participants, ` +
+          `${result.deletedCounts.payments} payments, ` +
+          `${result.deletedCounts.expenses} expenses`
+        );
+        setShowSuccessDialog(true);
+        await fetchEvents();
+      } else {
+        setMessage('Failed to delete event - check console for details');
+        setTimeout(() => setMessage(''), 3000);
+      }
     } catch (error) {
       console.error('Error deleting event:', error);
       setMessage('Failed to delete event');
@@ -279,6 +260,7 @@ export default function ManageEvents() {
       setDeletingEvent(false);
     }
   };
+
 
   const openEditModal = (event: Event) => {
     if (event.status === 'locked') {

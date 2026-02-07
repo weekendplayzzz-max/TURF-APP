@@ -10,8 +10,10 @@ import {
   Timestamp,
   addDoc,
   query,
-  where
+  where,
+  writeBatch
 } from 'firebase/firestore';
+
 export interface EventEditHistory {
   action: 'title_updated' | 'amount_updated' | 'duration_updated' | 'player_added' | 'date_updated' | 'time_updated' | 'deadline_extended';
   oldValue: string | number;
@@ -43,8 +45,6 @@ export interface Event {
   liveParticipantCount?: number;
 }
 
-
-
 interface Expense {
   id: string;
   expenseType: 'event_payment' | 'other_expense';
@@ -59,6 +59,85 @@ interface Expense {
   createdByRole: string;
   createdAt: Timestamp;
 }
+
+interface Income {
+  id: string;
+  incomeName: string;
+  description: string | null;
+  amount: number;
+  dateReceived: Timestamp;
+  incomeSource: 'sponsorship' | 'donation' | 'membership_fees' | 'fundraising' | 'other';
+  createdBy: string;
+  createdByEmail: string;
+  createdByRole: string;
+  createdAt: Timestamp;
+}
+
+// ==================== NUCLEAR DELETE EVENT ====================
+
+/**
+ * NUCLEAR DELETE: Permanently wipe event + all related data
+ * Deletes: event doc, eventPayments, eventParticipants, linked expenses
+ * Works regardless of event status (open/closed/locked)
+ */
+export async function deleteEventHelper(eventId: string): Promise<{ 
+  success: boolean; 
+  deletedCounts: { payments: number; participants: number; expenses: number; event: number } 
+}> {
+  try {
+    console.log(`🚀 Starting FULL deletion of event ${eventId}`);
+    
+    const batch = writeBatch(db);
+    let deletedCounts = { payments: 0, participants: 0, expenses: 0, event: 0 };
+
+    // 1. WIPE eventPayments (regardless of event status)
+    const paymentsRef = collection(db, 'eventPayments');
+    const paymentsQuery = query(paymentsRef, where('eventId', '==', eventId));
+    const paymentsSnapshot = await getDocs(paymentsQuery);
+    paymentsSnapshot.docs.forEach((docSnap) => {
+      batch.delete(doc(db, 'eventPayments', docSnap.id));
+      deletedCounts.payments++;
+    });
+
+    // 2. WIPE eventParticipants
+    const participantsRef = collection(db, 'eventParticipants');
+    const participantsQuery = query(participantsRef, where('eventId', '==', eventId));
+    const participantsSnapshot = await getDocs(participantsQuery);
+    participantsSnapshot.docs.forEach((docSnap) => {
+      batch.delete(doc(db, 'eventParticipants', docSnap.id));
+      deletedCounts.participants++;
+    });
+
+    // 3. WIPE linked expenses
+    const expensesRef = collection(db, 'expenses');
+    const expensesQuery = query(expensesRef, where('eventId', '==', eventId));
+    const expensesSnapshot = await getDocs(expensesQuery);
+    expensesSnapshot.docs.forEach((docSnap) => {
+      batch.delete(doc(db, 'expenses', docSnap.id));
+      deletedCounts.expenses++;
+    });
+    console.log(`💰 Found ${expensesSnapshot.size} linked expenses`);
+
+    // 4. WIPE event doc itself
+    const eventRef = doc(db, 'events', eventId);
+    batch.delete(eventRef);
+    deletedCounts.event = 1;
+
+    // COMMIT - ATOMIC (all succeed or NONE do)
+    await batch.commit();
+
+    console.log(`✅ FULLY DELETED event ${eventId}:`, deletedCounts);
+    return { success: true, deletedCounts };
+  } catch (error) {
+    console.error('💥 CRITICAL: Event deletion FAILED:', error);
+    return { 
+      success: false, 
+      deletedCounts: { payments: 0, participants: 0, expenses: 0, event: 0 } 
+    };
+  }
+}
+
+// ==================== CALCULATION HELPERS ====================
 
 /**
  * Calculate per-player amount with rounding rules
@@ -127,9 +206,6 @@ export async function updateEventTotalCollected(eventId: string): Promise<void> 
 /**
  * Create payment records when event closes
  */
-/**
- * Create payment records when event closes
- */
 export async function createEventPayments(eventId: string, event: Event, participantCount: number) {
   if (participantCount === 0) return;
 
@@ -149,10 +225,10 @@ export async function createEventPayments(eventId: string, event: Event, partici
           eventTime: event.time,
           playerId: data.playerId,
           playerName: data.playerName,
-          playerEmail: data.playerEmail || '',  // ← ADD THIS
-          playerType: data.playerType || 'regular',  // ← ADD THIS (critical for guests!)
-          parentId: data.parentId || null,  // ← ADD THIS (critical for guests!)
-          parentName: data.parentName || null,  // ← ADD THIS (optional but helpful)
+          playerEmail: data.playerEmail || '',
+          playerType: data.playerType || 'regular',
+          parentId: data.parentId || null,
+          parentName: data.parentName || null,
           originalAmountDue: perPlayerAmount,
           currentAmountDue: perPlayerAmount,
           totalPaid: 0,
@@ -179,7 +255,6 @@ export async function createEventPayments(eventId: string, event: Event, partici
     console.error('Error creating payments:', error);
   }
 }
-
 
 /**
  * Close event and create payment records
@@ -365,7 +440,7 @@ export async function fetchParticipantCounts() {
   return participantCounts;
 }
 
-// ==================== NEW FINANCIAL TRACKING SYSTEM ====================
+// ==================== FINANCIAL TRACKING SYSTEM ====================
 
 /**
  * Calculate total income from all closed/locked events
@@ -415,9 +490,28 @@ export async function calculateTotalExpenses(): Promise<number> {
 }
 
 /**
- * Get comprehensive financial summary
- * Returns: Total Income, Total Expenses, Available Balance
+ * Calculate total income from income collection
  */
+export async function calculateTotalDirectIncome(): Promise<number> {
+  try {
+    const incomeRef = collection(db, 'income');
+    const incomeSnapshot = await getDocs(incomeRef);
+    
+    let totalDirectIncome = 0;
+    incomeSnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data.amount) {
+        totalDirectIncome += data.amount;
+      }
+    });
+    
+    return totalDirectIncome;
+  } catch (error) {
+    console.error('Error calculating direct income:', error);
+    return 0;
+  }
+}
+
 /**
  * Get comprehensive financial summary (UPDATED VERSION)
  * Returns: Total Income (events + direct), Total Expenses, Available Balance
@@ -430,8 +524,8 @@ export async function getFinancialSummary(): Promise<{
   availableBalance: number;
 }> {
   try {
-    const eventIncome = await calculateTotalIncome(); // From events
-    const directIncome = await calculateTotalDirectIncome(); // From income collection
+    const eventIncome = await calculateTotalIncome();
+    const directIncome = await calculateTotalDirectIncome();
     const totalIncome = eventIncome + directIncome;
     const totalExpenses = await calculateTotalExpenses();
     const availableBalance = Math.max(totalIncome - totalExpenses, 0);
@@ -454,7 +548,6 @@ export async function getFinancialSummary(): Promise<{
     };
   }
 }
-
 
 /**
  * Mark event as paid to vendor
@@ -650,20 +743,8 @@ export async function getUnpaidEvents(): Promise<Event[]> {
     return [];
   }
 }
-// ==================== INCOME MANAGEMENT SYSTEM ====================
 
-interface Income {
-  id: string;
-  incomeName: string;
-  description: string | null;
-  amount: number;
-  dateReceived: Timestamp;
-  incomeSource: 'sponsorship' | 'donation' | 'membership_fees' | 'fundraising' | 'other';
-  createdBy: string;
-  createdByEmail: string;
-  createdByRole: string;
-  createdAt: Timestamp;
-}
+// ==================== INCOME MANAGEMENT SYSTEM ====================
 
 /**
  * Add income entry (sponsorships, donations, membership fees, etc.)
@@ -713,35 +794,12 @@ export async function addIncome(
 }
 
 /**
- * Calculate total income from income collection
- */
-export async function calculateTotalDirectIncome(): Promise<number> {
-  try {
-    const incomeRef = collection(db, 'income');
-    const incomeSnapshot = await getDocs(incomeRef);
-    
-    let totalDirectIncome = 0;
-    incomeSnapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      if (data.amount) {
-        totalDirectIncome += data.amount;
-      }
-    });
-    
-    return totalDirectIncome;
-  } catch (error) {
-    console.error('Error calculating direct income:', error);
-    return 0;
-  }
-}
-
-/**
  * Updated: Calculate TOTAL income (events + direct income)
  */
 export async function calculateTotalIncomeUpdated(): Promise<number> {
   try {
-    const eventIncome = await calculateTotalIncome(); // From events
-    const directIncome = await calculateTotalDirectIncome(); // From income collection
+    const eventIncome = await calculateTotalIncome();
+    const directIncome = await calculateTotalDirectIncome();
     
     return eventIncome + directIncome;
   } catch (error) {
