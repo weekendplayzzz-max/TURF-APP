@@ -368,7 +368,7 @@ export default function PlayerInfo() {
           </div>
 
           {/* Statistics Card */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+          {/* <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
             <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-4 sm:mb-6">Account Statistics</h3>
             {loadingStats ? (
               <div className="flex items-center justify-center py-8">
@@ -399,7 +399,7 @@ export default function PlayerInfo() {
                 </div>
               </div>
             )}
-          </div>
+          </div> */}
 
           {/* Security Card */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
