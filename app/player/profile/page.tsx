@@ -19,6 +19,10 @@ interface UserProfile {
   position: 'GK' | 'DEF' | 'MID' | 'FORWARD';
 }
 
+interface UserData {
+  createdAt: Timestamp;
+}
+
 // Helper function to format position
 const formatPosition = (pos: string): string => {
   const positionMap: { [key: string]: string } = {
@@ -41,11 +45,41 @@ export default function PlayerInfo() {
   const [loadingStats, setLoadingStats] = useState(true);
   const [profileData, setProfileData] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [loadingUserData, setLoadingUserData] = useState(true);
 
   useEffect(() => {
     if (loading) return;
     if (!user || role !== 'player') router.push('/login');
   }, [role, loading, user, router]);
+
+  // Fetch user data from users collection (for createdAt)
+  useEffect(() => {
+    const fetchUserData = async () => {
+      if (!user) return;
+
+      try {
+        setLoadingUserData(true);
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+          setUserData({
+            createdAt: data.createdAt
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching user data:', error);
+      } finally {
+        setLoadingUserData(false);
+      }
+    };
+
+    if (role === 'player' && user) {
+      fetchUserData();
+    }
+  }, [user, role]);
 
   // Fetch player profile from userProfiles collection
   useEffect(() => {
@@ -273,7 +307,7 @@ export default function PlayerInfo() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
             <h3 className="text-base sm:text-lg font-bold text-gray-900 mb-4">Player Details</h3>
             
-            {loadingProfile ? (
+            {loadingProfile || loadingUserData ? (
               <div className="space-y-4">
                 <div className="h-4 bg-gray-200 rounded w-full animate-pulse"></div>
                 <div className="h-4 bg-gray-200 rounded w-3/4 animate-pulse"></div>
@@ -319,7 +353,14 @@ export default function PlayerInfo() {
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">Member Since</label>
                   <p className="text-sm text-gray-900">
-                    {new Date((user as any)?.metadata?.creationTime || Date.now()).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    {userData?.createdAt 
+                      ? new Date(userData.createdAt.toDate()).toLocaleDateString('en-US', { 
+                          month: 'long', 
+                          day: 'numeric', 
+                          year: 'numeric' 
+                        })
+                      : 'Not available'
+                    }
                   </p>
                 </div>
               </div>
