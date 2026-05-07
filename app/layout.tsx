@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import '@/app/globals.css';
 import { AuthWrapper } from '../context/AuthWrapper';
-import InstallPWA from '@/components/InstallPWA'; // Import the component
+import InstallPWA from '@/components/InstallPWA';
+import UpdateBanner from '@/components/UpdateBanner'; // ← Add this
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -43,6 +44,7 @@ export default function RootLayout({
       >
         <AuthWrapper>
           <InstallPWA />
+          <UpdateBanner /> {/* ← Add this */}
           {children}
         </AuthWrapper>
       </body>

@@ -44,16 +44,20 @@ interface Event {
   status: 'open' | 'closed' | 'locked';
 }
 
+type ActiveTab = 'overview' | 'events' | 'income' | 'expenses';
+
 export default function SecretaryTeamFund() {
   const { role, loading, user } = useAuth();
   const router = useRouter();
 
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [incomes, setIncomes] = useState<Income[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
-  const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
+  const [expenses, setExpenses]             = useState<Expense[]>([]);
+  const [incomes, setIncomes]               = useState<Income[]>([]);
+  const [events, setEvents]                 = useState<Event[]>([]);
+  const [loadingData, setLoadingData]       = useState(true);
+  const [activeTab, setActiveTab]           = useState<ActiveTab>('overview');
+  const [expandedEvent, setExpandedEvent]   = useState<string | null>(null);
   const [expandedIncome, setExpandedIncome] = useState<string | null>(null);
+  const [expandedExpense, setExpandedExpense] = useState<string | null>(null);
   const [financialSummary, setFinancialSummary] = useState({
     totalIncome: 0,
     eventIncome: 0,
@@ -63,178 +67,88 @@ export default function SecretaryTeamFund() {
   });
 
   useEffect(() => {
-    if (!loading && role !== 'secretary') {
-      router.push('/login');
-    }
+    if (!loading && role !== 'secretary') router.push('/login');
   }, [role, loading, router]);
 
-  // Real-time listener for expenses
+  // Expenses listener
   useEffect(() => {
     if (role !== 'secretary') return;
-
     setLoadingData(true);
-
-    const expensesRef = collection(db, 'expenses');
-    const expensesQuery = query(expensesRef, orderBy('dateSpent', 'desc'));
-
-    const unsubscribeExpenses = onSnapshot(
-      expensesQuery,
-      (snapshot) => {
-        const expensesList: Expense[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          expensesList.push({
-            id: docSnap.id,
-            expenseType: data.expenseType,
-            eventId: data.eventId,
-            eventTitle: data.eventTitle,
-            expenseName: data.expenseName,
-            description: data.description || null,
-            dateSpent: data.dateSpent,
-            amount: data.amount,
-            createdByEmail: data.createdByEmail,
-            createdAt: data.createdAt,
-          });
-        });
-        setExpenses(expensesList);
-      },
-      (error) => {
-        console.error('Error fetching expenses:', error);
+    const unsub = onSnapshot(
+      query(collection(db, 'expenses'), orderBy('dateSpent', 'desc')),
+      (snap) => {
+        setExpenses(snap.docs.map(d => ({
+          id: d.id, ...d.data() as Omit<Expense, 'id'>
+        })));
       }
     );
-
-    return () => unsubscribeExpenses();
+    return unsub;
   }, [role]);
 
-  // Real-time listener for direct income (sponsorships, donations, etc.)
+  // Income listener
   useEffect(() => {
     if (role !== 'secretary') return;
-
-    const incomeRef = collection(db, 'income');
-    const incomeQuery = query(incomeRef, orderBy('dateReceived', 'desc'));
-
-    const unsubscribeIncome = onSnapshot(
-      incomeQuery,
-      (snapshot) => {
-        const incomeList: Income[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          incomeList.push({
-            id: docSnap.id,
-            incomeName: data.incomeName,
-            description: data.description || null,
-            amount: data.amount,
-            dateReceived: data.dateReceived,
-            incomeSource: data.incomeSource,
-            createdByEmail: data.createdByEmail,
-            createdAt: data.createdAt,
-          });
-        });
-        setIncomes(incomeList);
-      },
-      (error) => {
-        console.error('Error fetching income:', error);
+    const unsub = onSnapshot(
+      query(collection(db, 'income'), orderBy('dateReceived', 'desc')),
+      (snap) => {
+        setIncomes(snap.docs.map(d => ({
+          id: d.id, ...d.data() as Omit<Income, 'id'>
+        })));
       }
     );
-
-    return () => unsubscribeIncome();
+    return unsub;
   }, [role]);
 
-  // Real-time listener for events
+  // Events listener
   useEffect(() => {
     if (role !== 'secretary') return;
-
-    const eventsRef = collection(db, 'events');
-    const eventsQuery = query(eventsRef, orderBy('date', 'desc'));
-
-    const unsubscribeEvents = onSnapshot(
-      eventsQuery,
-      (snapshot) => {
-        const eventsList: Event[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          const totalCollected = data.totalCollected || 0;
-
-          // Only include closed/locked events with collected money
-          if ((data.status === 'closed' || data.status === 'locked') && totalCollected > 0) {
-            eventsList.push({
-              id: docSnap.id,
-              title: data.title,
-              date: data.date,
-              time: data.time,
-              totalAmount: data.totalAmount,
-              participantCount: data.participantCount || 0,
-              totalCollected: totalCollected,
-              eventPaidToVendor: data.eventPaidToVendor || false,
-              status: data.status,
-            });
+    const unsub = onSnapshot(
+      query(collection(db, 'events'), orderBy('date', 'desc')),
+      (snap) => {
+        const list: Event[] = [];
+        snap.forEach(d => {
+          const data = d.data();
+          const collected = data.totalCollected || 0;
+          if ((data.status === 'closed' || data.status === 'locked') && collected > 0) {
+            list.push({ id: d.id, ...data as Omit<Event, 'id'> });
           }
         });
-        setEvents(eventsList);
+        setEvents(list);
         setLoadingData(false);
       },
-      (error) => {
-        console.error('Error fetching events:', error);
-        setLoadingData(false);
-      }
+      () => setLoadingData(false)
     );
-
-    return () => unsubscribeEvents();
+    return unsub;
   }, [role]);
 
-  // Fetch financial summary (refresh when expenses, incomes, or events change)
+  // Financial summary
   useEffect(() => {
     if (role !== 'secretary') return;
-
-    const fetchSummary = async () => {
-      try {
-        const summary = await getFinancialSummary();
-        setFinancialSummary(summary);
-      } catch (error) {
-        console.error('Error fetching financial summary:', error);
-      }
-    };
-
-    fetchSummary();
+    getFinancialSummary()
+      .then(setFinancialSummary)
+      .catch(console.error);
   }, [role, expenses, incomes, events]);
 
-  const toggleEvent = (eventId: string) => {
-    setExpandedEvent(expandedEvent === eventId ? null : eventId);
+  const calcPerPlayer = (total: number, count: number) =>
+    count === 0 ? 0 : Math.max(Math.ceil((total / count) / 10) * 10, 100);
+
+  const incomeSourceLabel: Record<string, string> = {
+    sponsorship:    '🤝 Sponsorship',
+    donation:       '💝 Donation',
+    membership_fees:'💳 Membership',
+    fundraising:    '🎉 Fundraising',
+    other:          '📌 Other',
   };
 
-  const toggleIncome = (incomeId: string) => {
-    setExpandedIncome(expandedIncome === incomeId ? null : incomeId);
-  };
-
-  // Calculate per player amount with ₹100 minimum
-  const calculatePerPlayerAmount = (totalAmount: number, participantCount: number): number => {
-    if (participantCount === 0) return 0;
-    const baseAmount = totalAmount / participantCount;
-    const roundedAmount = Math.ceil(baseAmount / 10) * 10;
-    return Math.max(roundedAmount, 100); // Minimum ₹100
-  };
-
-  // Get income source label
-  const getIncomeSourceLabel = (source: string): string => {
-    const labels: { [key: string]: string } = {
-      sponsorship: '🤝 Sponsorship',
-      donation: '💝 Donation',
-      membership_fees: '💳 Membership Fees',
-      fundraising: '🎉 Fundraising',
-      other: '📌 Other Income',
-    };
-    return labels[source] || '📌 Other';
-  };
+  const fmtDate = (ts: Timestamp) =>
+    ts.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
   if (loading || !user || role !== 'secretary') {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-        <div className="text-center">
-          <div className="relative w-16 h-16 mx-auto mb-4">
-            <div className="absolute inset-0 border-4 border-red-600/20 rounded-full"></div>
-            <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-          </div>
-          <p className="text-base text-gray-700 font-medium">Loading...</p>
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="relative w-12 h-12">
+          <div className="absolute inset-0 border-4 border-red-600/20 rounded-full" />
+          <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
         </div>
       </div>
     );
@@ -242,518 +156,457 @@ export default function SecretaryTeamFund() {
 
   const eventExpenses = expenses.filter(e => e.expenseType === 'event_payment');
   const otherExpenses = expenses.filter(e => e.expenseType === 'other_expense');
+  const balance       = financialSummary.availableBalance;
+
+  const TABS: { key: ActiveTab; label: string; count?: number }[] = [
+    { key: 'overview',  label: 'Overview' },
+    { key: 'events',    label: 'Events',   count: events.length },
+    { key: 'income',    label: 'Income',   count: incomes.length },
+    { key: 'expenses',  label: 'Expenses', count: expenses.length },
+  ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-              <button
-                onClick={() => router.back()}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer flex-shrink-0"
-                title="Go Back"
-              >
-                <svg className="w-5 h-5 sm:w-6 sm:h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
+    <div className="min-h-screen bg-gray-50">
+
+      {/* ── HEADER ──────────────────────────────────────────────────────────── */}
+      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
+        <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
+          <button onClick={() => router.back()}
+            className="p-2.5 rounded-xl bg-gray-100 active:bg-gray-200 cursor-pointer flex-shrink-0">
+            <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </button>
+          <div className="w-7 h-7 flex-shrink-0">
+            <Image src="/logo.png" alt="Logo" width={28} height={28} className="w-full h-full object-contain" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-sm font-bold text-gray-900 leading-tight">Club Finances</h1>
+            <p className="text-xs text-gray-400">Income, expenses &amp; balance</p>
+          </div>
+        </div>
+
+        {/* Tab bar */}
+        <div className="max-w-lg mx-auto px-4">
+          <div className="flex border-t border-gray-100">
+            {TABS.map(tab => (
+              <button key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`flex-1 py-2.5 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                  activeTab === tab.key
+                    ? 'border-red-600 text-red-600'
+                    : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}>
+                {tab.label}
+                {tab.count !== undefined && tab.count > 0 && (
+                  <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                    activeTab === tab.key ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    {tab.count}
+                  </span>
+                )}
               </button>
-              <div className="w-9 h-9 sm:w-12 sm:h-12 flex-shrink-0">
-                <Image
-                  src="/logo.png"
-                  alt="Art of War Logo"
-                  width={48}
-                  height={48}
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h1 className="text-base sm:text-xl md:text-2xl font-bold text-gray-900">
-                  Club Finances
-                </h1>
-                <p className="text-xs sm:text-sm text-gray-600 hidden sm:block">
-                  Complete overview of income and expenses
-                </p>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 md:py-10">
+      {/* ── CONTENT ─────────────────────────────────────────────────────────── */}
+      <div className="max-w-lg mx-auto px-3 py-4 pb-12">
         {loadingData ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="text-center">
-              <div className="relative w-16 h-16 mx-auto mb-4">
-                <div className="absolute inset-0 border-4 border-red-600/20 rounded-full"></div>
-                <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-              </div>
-              <p className="text-base text-gray-700 font-medium">Loading club finances...</p>
+          <div className="flex items-center justify-center py-24">
+            <div className="relative w-10 h-10">
+              <div className="absolute inset-0 border-4 border-red-600/20 rounded-full" />
+              <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
             </div>
           </div>
         ) : (
           <>
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6 sm:mb-8">
-              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-4 sm:p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs sm:text-sm text-gray-600 font-semibold">Total Income</p>
-                  <span className="text-2xl sm:text-3xl">📈</span>
-                </div>
-                <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-green-600">
-                  ₹{financialSummary.totalIncome.toLocaleString()}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                  <span className="px-2 py-1 bg-green-50 text-green-700 rounded border border-green-200">
-                    Events: ₹{financialSummary.eventIncome.toLocaleString()}
-                  </span>
-                  <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded border border-blue-200">
-                    Direct: ₹{financialSummary.directIncome.toLocaleString()}
-                  </span>
-                </div>
-              </div>
+            {/* ══ OVERVIEW TAB ══════════════════════════════════════════════ */}
+            {activeTab === 'overview' && (
+              <div className="space-y-3 animate-fadeIn">
 
-              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-4 sm:p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs sm:text-sm text-gray-600 font-semibold">Total Expenses</p>
-                  <span className="text-2xl sm:text-3xl">💸</span>
-                </div>
-                <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-red-600">
-                  ₹{financialSummary.totalExpenses.toLocaleString()}
-                </p>
-                <p className="text-xs text-gray-500 mt-2">{expenses.length} expense(s)</p>
-              </div>
-
-              <div className="bg-white rounded-2xl shadow-xl border border-gray-200 p-4 sm:p-6">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs sm:text-sm text-gray-600 font-semibold">Available Balance</p>
-                  <span className="text-2xl sm:text-3xl">💰</span>
-                </div>
-                <p className="text-2xl sm:text-3xl md:text-4xl font-bold text-blue-600">
-                  ₹{financialSummary.availableBalance.toLocaleString()}
-                </p>
-                <p className="text-xs text-gray-500 mt-2">Current club balance</p>
-              </div>
-            </div>
-
-            {/* Income History - Events */}
-            <div className="bg-white rounded-2xl shadow-xl border border-gray-200 mb-6 sm:mb-8">
-              <div className="px-4 sm:px-6 py-4 bg-gray-50 border-b border-gray-200 rounded-t-2xl">
-                <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2">
-                  <span className="text-2xl sm:text-3xl">🏟️</span>
-                  <span>Event Income</span>
-                </h2>
-                <p className="text-xs sm:text-sm text-gray-600 mt-1">Money collected from turf events (₹100 minimum per player)</p>
-              </div>
-
-              {events.length === 0 ? (
-                <div className="p-8 sm:p-12 text-center">
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                    <span className="text-3xl sm:text-4xl">🏟️</span>
+                {/* Balance hero card */}
+                <div className="relative overflow-hidden bg-gray-900 rounded-2xl p-5 text-white">
+                  <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full border-[18px] border-red-600/20 pointer-events-none" />
+                  <div className="absolute right-2 -bottom-8 w-20 h-20 rounded-full border-[14px] border-red-600/10 pointer-events-none" />
+                  <div className="relative">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold mb-1">
+                      Available Balance
+                    </p>
+                    <p className="text-4xl font-black text-white">
+                      ₹{balance.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">Current club funds</p>
                   </div>
-                  <p className="text-base sm:text-xl font-bold text-gray-900 mb-2">No event income yet</p>
-                  <p className="text-sm sm:text-base text-gray-600">
-                    Income will appear here once events are completed and payments are collected
-                  </p>
                 </div>
-              ) : (
-                <div className="divide-y divide-gray-200">
-                  {events.map((event) => {
-                    const isExpanded = expandedEvent === event.id;
-                    const eventDate = event.date.toDate();
-                    const perPlayerAmount = calculatePerPlayerAmount(event.totalAmount, event.participantCount);
-                    const expectedTotal = perPlayerAmount * event.participantCount;
-                    const profitMargin = event.totalCollected - event.totalAmount;
-                    const collectionRate = expectedTotal > 0 
-                      ? Math.round((event.totalCollected / expectedTotal) * 100)
-                      : 0;
 
-                    return (
-                      <div key={event.id} className="transition-colors hover:bg-gray-50">
-                        {/* Event Header */}
-                        <div
-                          onClick={() => toggleEvent(event.id)}
-                          className="px-4 sm:px-6 py-4 cursor-pointer"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex flex-wrap items-center gap-2 mb-2">
-                                <h4 className="text-base sm:text-lg font-bold text-gray-900 break-words">
-                                  {event.title}
-                                </h4>
-                                <span className="px-2 sm:px-3 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200 flex-shrink-0">
-                                  ₹{event.totalCollected.toLocaleString()}
-                                </span>
-                                {event.eventPaidToVendor && (
-                                  <span className="px-2 sm:px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 flex-shrink-0">
-                                    ✓ Vendor Paid
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap gap-3 sm:gap-4 text-xs sm:text-sm text-gray-600">
-                                <span className="flex items-center gap-1">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                  </svg>
-                                  {eventDate.toLocaleDateString('en-IN', {
-                                    day: 'numeric',
-                                    month: 'short',
-                                    year: 'numeric',
-                                  })}
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                  </svg>
-                                  {event.participantCount} players
-                                </span>
-                                <span className="text-green-600 font-semibold">
-                                  {collectionRate}% collected
-                                </span>
-                              </div>
-                            </div>
-                            <button className="flex-shrink-0 p-1">
-                              <svg
-                                className={`w-5 h-5 sm:w-6 sm:h-6 text-gray-400 transition-transform ${
-                                  isExpanded ? 'transform rotate-180' : ''
-                                }`}
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Event Details */}
-                        {isExpanded && (
-                          <div className="px-4 sm:px-6 pb-4 bg-gray-50">
-                            <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-                              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 sm:gap-6">
-                                <div>
-                                  <p className="text-xs text-gray-600 font-semibold mb-1">Turf Cost</p>
-                                  <p className="text-lg sm:text-2xl font-bold text-gray-900">
-                                    ₹{event.totalAmount.toLocaleString()}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-600 font-semibold mb-1">Per Player</p>
-                                  <p className="text-lg sm:text-2xl font-bold text-blue-600">
-                                    ₹{perPlayerAmount.toLocaleString()}
-                                  </p>
-                                  <p className="text-xs text-gray-500 mt-1">Min ₹100</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-600 font-semibold mb-1">Expected</p>
-                                  <p className="text-lg sm:text-2xl font-bold text-purple-600">
-                                    ₹{expectedTotal.toLocaleString()}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-600 font-semibold mb-1">Collected</p>
-                                  <p className="text-lg sm:text-2xl font-bold text-green-600">
-                                    ₹{event.totalCollected.toLocaleString()}
-                                  </p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-gray-600 font-semibold mb-1">Profit</p>
-                                  <p className="text-lg sm:text-2xl font-bold text-orange-600">
-                                    ₹{profitMargin.toLocaleString()}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-gray-200">
-                                <p className="text-xs sm:text-sm text-gray-600">
-                                  <strong>Collection:</strong> ₹{event.totalCollected.toLocaleString()} collected from players 
-                                </p>
-                                <p className="text-xs sm:text-sm text-gray-600 mt-1">
-                                  <strong>Profit:</strong> ₹{event.totalCollected.toLocaleString()} - ₹{event.totalAmount.toLocaleString()} turf = ₹{profitMargin.toLocaleString()}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Direct Income (Sponsorships, Donations, etc.) */}
-            <div className="bg-white rounded-2xl shadow-xl border border-gray-200 mb-6 sm:mb-8">
-              <div className="px-4 sm:px-6 py-4 bg-green-50 border-b border-green-200 rounded-t-2xl">
-                <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2">
-                  <span className="text-2xl sm:text-3xl">💝</span>
-                  <span>Other Income</span>
-                </h2>
-                <p className="text-xs sm:text-sm text-gray-600 mt-1">Sponsorships, donations, membership fees, and fundraising</p>
-              </div>
-
-              {incomes.length === 0 ? (
-                <div className="p-8 sm:p-12 text-center">
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                    <span className="text-3xl sm:text-4xl">💝</span>
-                  </div>
-                  <p className="text-base sm:text-xl font-bold text-gray-900 mb-2">No other income recorded yet</p>
-                  <p className="text-sm sm:text-base text-gray-600">
-                    Sponsorships, donations, and other income will appear here
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-200">
-                  {incomes.map((income) => {
-                    const isExpanded = expandedIncome === income.id;
-                    const incomeDate = income.dateReceived.toDate();
-
-                    return (
-                      <div key={income.id} className="transition-colors hover:bg-gray-50">
-                        <div
-                          onClick={() => toggleIncome(income.id)}
-                          className="px-4 sm:px-6 py-4 cursor-pointer"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex flex-wrap items-center gap-2 mb-2">
-                                <h4 className="text-base sm:text-lg font-bold text-gray-900 break-words">
-                                  {income.incomeName}
-                                </h4>
-                                <span className="px-2 sm:px-3 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200 flex-shrink-0">
-                                  ₹{income.amount.toLocaleString()}
-                                </span>
-                                <span className="px-2 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 flex-shrink-0">
-                                  {getIncomeSourceLabel(income.incomeSource)}
-                                </span>
-                              </div>
-                              <div className="flex flex-wrap gap-3 text-xs sm:text-sm text-gray-600">
-                                <span className="flex items-center gap-1">
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                  </svg>
-                                  {incomeDate.toLocaleDateString('en-IN', {
-                                    day: 'numeric',
-                                    month: 'short',
-                                    year: 'numeric',
-                                  })}
-                                </span>
-                              </div>
-                            </div>
-                            <button className="flex-shrink-0 p-1">
-                              <svg
-                                className={`w-5 h-5 sm:w-6 sm:h-6 text-gray-400 transition-transform ${
-                                  isExpanded ? 'transform rotate-180' : ''
-                                }`}
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
-                              >
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
-
-                        {isExpanded && income.description && (
-                          <div className="px-4 sm:px-6 pb-4 bg-gray-50">
-                            <div className="bg-white rounded-xl p-4 border border-gray-200">
-                              <p className="text-sm text-gray-700">{income.description}</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Expenses Section */}
-            <div className="bg-white rounded-2xl shadow-xl border border-gray-200 mb-6 sm:mb-8">
-              <div className="px-4 sm:px-6 py-4 bg-gray-50 border-b border-gray-200 rounded-t-2xl">
-                <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2">
-                  <span className="text-2xl sm:text-3xl">💰</span>
-                  <span>Club Expenses</span>
-                </h2>
-                <p className="text-xs sm:text-sm text-gray-600 mt-1">All team spending records</p>
-              </div>
-
-              {expenses.length === 0 ? (
-                <div className="p-8 sm:p-12 text-center">
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                    <span className="text-3xl sm:text-4xl">💰</span>
-                  </div>
-                  <p className="text-base sm:text-xl font-bold text-gray-900 mb-2">No expenses recorded yet</p>
-                  <p className="text-sm sm:text-base text-gray-600">
-                    Club expenses will appear here once the treasurer records them
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {/* Mobile Card View */}
-                  <div className="block lg:hidden divide-y divide-gray-200">
-                    {/* Event Payments Section */}
-                    {eventExpenses.length > 0 && (
-                      <>
-                        <div className="bg-blue-50 px-4 py-3">
-                          <p className="text-sm font-bold text-blue-900">🏟️ Event Payments ({eventExpenses.length})</p>
-                        </div>
-                        {eventExpenses.map((expense, index) => (
-                          <div
-                            key={expense.id}
-                            className={`p-4 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
-                          >
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex-1 min-w-0 mr-3">
-                                <p className="text-sm font-bold text-gray-900 mb-1">{expense.eventTitle}</p>
-                                <p className="text-xs text-gray-600">
-                                  {expense.dateSpent.toDate().toLocaleDateString('en-IN', {
-                                    day: 'numeric',
-                                    month: 'short',
-                                    year: 'numeric',
-                                  })}
-                                </p>
-                                <span className="inline-block mt-1 px-2 py-1 bg-blue-100 text-blue-700 text-xs font-semibold rounded">
-                                  Turf Vendor Payment
-                                </span>
-                              </div>
-                              <p className="text-lg font-bold text-red-600 flex-shrink-0">
-                                ₹{expense.amount.toLocaleString()}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </>
-                    )}
-
-                    {/* Other Expenses Section */}
-                    {otherExpenses.length > 0 && (
-                      <>
-                        <div className="bg-orange-50 px-4 py-3">
-                          <p className="text-sm font-bold text-orange-900">🛍️ Other Expenses ({otherExpenses.length})</p>
-                        </div>
-                        {otherExpenses.map((expense, index) => (
-                          <div
-                            key={expense.id}
-                            className={`p-4 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
-                          >
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex-1 min-w-0 mr-3">
-                                <p className="text-sm font-bold text-gray-900 mb-1">{expense.expenseName}</p>
-                                <p className="text-xs text-gray-600">
-                                  {expense.dateSpent.toDate().toLocaleDateString('en-IN', {
-                                    day: 'numeric',
-                                    month: 'short',
-                                    year: 'numeric',
-                                  })}
-                                </p>
-                              </div>
-                              <p className="text-lg font-bold text-red-600 flex-shrink-0">
-                                ₹{expense.amount.toLocaleString()}
-                              </p>
-                            </div>
-                            {expense.description && (
-                              <p className="text-xs text-gray-600 mt-2">{expense.description}</p>
-                            )}
-                          </div>
-                        ))}
-                      </>
-                    )}
-
-                    <div className="bg-gray-100 border-t-2 border-gray-300 p-4">
+                {/* Income / Expenses row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                    <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide mb-1">Total Income</p>
+                    <p className="text-xl font-black text-green-600">
+                      ₹{financialSummary.totalIncome.toLocaleString()}
+                    </p>
+                    <div className="mt-2 space-y-1">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-gray-900">TOTAL EXPENSES:</span>
-                        <span className="text-xl font-bold text-red-600">
-                          ₹{financialSummary.totalExpenses.toLocaleString()}
+                        <span className="text-[10px] text-gray-400">Events</span>
+                        <span className="text-[10px] font-bold text-gray-700">
+                          ₹{financialSummary.eventIncome.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400">Direct</span>
+                        <span className="text-[10px] font-bold text-gray-700">
+                          ₹{financialSummary.directIncome.toLocaleString()}
                         </span>
                       </div>
                     </div>
                   </div>
-
-                  {/* Desktop Table View */}
-                  <div className="hidden lg:block overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50 border-b border-gray-200">
-                        <tr>
-                          <th className="px-6 py-4 text-left text-sm font-bold text-gray-900">Type</th>
-                          <th className="px-6 py-4 text-left text-sm font-bold text-gray-900">Date</th>
-                          <th className="px-6 py-4 text-left text-sm font-bold text-gray-900">Expense</th>
-                          <th className="px-6 py-4 text-left text-sm font-bold text-gray-900">Description</th>
-                          <th className="px-6 py-4 text-right text-sm font-bold text-gray-900">Amount</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {expenses.map((expense, index) => (
-                          <tr
-                            key={expense.id}
-                            className={`${
-                              index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                            } hover:bg-gray-100 transition`}
-                          >
-                            <td className="px-6 py-4">
-                              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                expense.expenseType === 'event_payment'
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-orange-100 text-orange-700'
-                              }`}>
-                                {expense.expenseType === 'event_payment' ? '🏟️ Turf' : '🛍️ Other'}
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-gray-900 font-semibold">
-                              {expense.dateSpent.toDate().toLocaleDateString('en-IN', {
-                                day: 'numeric',
-                                month: 'short',
-                                year: 'numeric',
-                              })}
-                            </td>
-                            <td className="px-6 py-4">
-                              <p className="text-gray-900 font-semibold">
-                                {expense.expenseType === 'event_payment' 
-                                  ? expense.eventTitle 
-                                  : expense.expenseName}
-                              </p>
-                            </td>
-                            <td className="px-6 py-4 text-gray-600 text-sm max-w-xs">
-                              {expense.expenseType === 'event_payment' ? (
-                                <span className="italic text-gray-500">Turf vendor payment</span>
-                              ) : expense.description ? (
-                                expense.description
-                              ) : (
-                                <span className="italic text-gray-400">No description</span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <span className="text-red-600 font-bold text-lg">
-                                ₹{expense.amount.toLocaleString()}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot className="bg-gray-100 border-t-2 border-gray-300">
-                        <tr>
-                          <td colSpan={4} className="px-6 py-4 text-right font-bold text-gray-900">
-                            TOTAL EXPENSES:
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <span className="text-red-600 font-bold text-xl">
-                              ₹{financialSummary.totalExpenses.toLocaleString()}
-                            </span>
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+                    <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wide mb-1">Total Expenses</p>
+                    <p className="text-xl font-black text-red-600">
+                      ₹{financialSummary.totalExpenses.toLocaleString()}
+                    </p>
+                    <div className="mt-2 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400">Turf</span>
+                        <span className="text-[10px] font-bold text-gray-700">{eventExpenses.length} records</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-gray-400">Other</span>
+                        <span className="text-[10px] font-bold text-gray-700">{otherExpenses.length} records</span>
+                      </div>
+                    </div>
                   </div>
-                </>
-              )}
-            </div>
+                </div>
+
+                {/* Quick stats row */}
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Events',   value: String(events.length),   color: 'text-blue-600'   },
+                    { label: 'Incomes',  value: String(incomes.length),  color: 'text-green-600'  },
+                    { label: 'Expenses', value: String(expenses.length), color: 'text-red-600'    },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-3 text-center">
+                      <p className={`text-xl font-black ${color}`}>{value}</p>
+                      <p className="text-[10px] text-gray-400 font-semibold mt-0.5">{label}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Go to sections */}
+                <div className="space-y-2">
+                  {([
+                    { tab: 'events'   as ActiveTab, icon: '🏟️', label: 'Event Income',   sub: `${events.length} completed events`,   count: `₹${financialSummary.eventIncome.toLocaleString()}`,   color: 'text-blue-600'  },
+                    { tab: 'income'   as ActiveTab, icon: '💝', label: 'Other Income',   sub: `${incomes.length} records`,            count: `₹${financialSummary.directIncome.toLocaleString()}`,  color: 'text-green-600' },
+                    { tab: 'expenses' as ActiveTab, icon: '💸', label: 'Club Expenses',  sub: `${expenses.length} expense records`,   count: `₹${financialSummary.totalExpenses.toLocaleString()}`, color: 'text-red-600'   },
+                  ] as const).map(({ tab, icon, label, sub, count, color }) => (
+                    <button key={tab} onClick={() => setActiveTab(tab)}
+                      className="w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors cursor-pointer text-left">
+                      <span className="text-2xl flex-shrink-0">{icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-gray-900">{label}</p>
+                        <p className="text-xs text-gray-400">{sub}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className={`text-sm font-black ${color}`}>{count}</p>
+                        <svg className="w-4 h-4 text-gray-300 ml-auto mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ══ EVENTS TAB ════════════════════════════════════════════════ */}
+            {activeTab === 'events' && (
+              <div className="space-y-2 animate-fadeIn">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">
+                    {events.length} Event{events.length !== 1 ? 's' : ''}
+                  </p>
+                  <p className="text-xs font-black text-green-600">
+                    ₹{financialSummary.eventIncome.toLocaleString()} total
+                  </p>
+                </div>
+
+                {events.length === 0 ? (
+                  <EmptyState icon="🏟️" title="No event income yet"
+                    sub="Income appears once events are closed and payments collected" />
+                ) : events.map(event => {
+                  const isExpanded   = expandedEvent === event.id;
+                  const perPlayer    = calcPerPlayer(event.totalAmount, event.participantCount);
+                  const expected     = perPlayer * event.participantCount;
+                  const profit       = event.totalCollected - event.totalAmount;
+                  const rate         = expected > 0 ? Math.round((event.totalCollected / expected) * 100) : 0;
+
+                  return (
+                    <div key={event.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                      <button onClick={() => setExpandedEvent(isExpanded ? null : event.id)}
+                        className="w-full p-4 flex items-start gap-3 text-left cursor-pointer active:bg-gray-50 transition-colors">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <p className="text-sm font-black text-gray-900 break-words">{event.title}</p>
+                            {event.eventPaidToVendor && (
+                              <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-black rounded-full border border-blue-200">
+                                ✓ Vendor Paid
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-gray-400">
+                            <span>{fmtDate(event.date)}</span>
+                            <span>·</span>
+                            <span>{event.participantCount} players</span>
+                            <span>·</span>
+                            <span className={`font-bold ${rate === 100 ? 'text-green-600' : rate >= 50 ? 'text-yellow-600' : 'text-red-500'}`}>
+                              {rate}% collected
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-base font-black text-green-600">
+                            ₹{event.totalCollected.toLocaleString()}
+                          </p>
+                          <svg className={`w-4 h-4 text-gray-300 ml-auto mt-1 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                      </button>
+
+                      {isExpanded && (
+                        <div className="border-t border-gray-100 bg-gray-50 p-4 animate-fadeIn">
+                          <div className="grid grid-cols-2 gap-3">
+                            {[
+                              { label: 'Turf Cost',  value: `₹${event.totalAmount.toLocaleString()}`,     color: 'text-gray-900'   },
+                              { label: 'Per Player', value: `₹${perPlayer.toLocaleString()}`,             color: 'text-blue-600'   },
+                              { label: 'Expected',   value: `₹${expected.toLocaleString()}`,              color: 'text-purple-600' },
+                              { label: 'Profit',     value: `₹${profit.toLocaleString()}`,                color: profit >= 0 ? 'text-green-600' : 'text-red-600' },
+                            ].map(({ label, value, color }) => (
+                              <div key={label} className="bg-white rounded-xl p-3 border border-gray-100">
+                                <p className="text-[10px] text-gray-400 font-semibold uppercase mb-1">{label}</p>
+                                <p className={`text-base font-black ${color}`}>{value}</p>
+                              </div>
+                            ))}
+                          </div>
+                          {/* Collection bar */}
+                          <div className="mt-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] text-gray-400 font-semibold">Collection Rate</span>
+                              <span className="text-[10px] font-black text-gray-700">{rate}%</span>
+                            </div>
+                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                  rate === 100 ? 'bg-green-500' : rate >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                                }`}
+                                style={{ width: `${Math.min(rate, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ══ INCOME TAB ════════════════════════════════════════════════ */}
+            {activeTab === 'income' && (
+              <div className="space-y-2 animate-fadeIn">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">
+                    {incomes.length} Record{incomes.length !== 1 ? 's' : ''}
+                  </p>
+                  <p className="text-xs font-black text-green-600">
+                    ₹{financialSummary.directIncome.toLocaleString()} total
+                  </p>
+                </div>
+
+                {incomes.length === 0 ? (
+                  <EmptyState icon="💝" title="No other income recorded"
+                    sub="Sponsorships, donations, and other income will appear here" />
+                ) : incomes.map(income => {
+                  const isExpanded = expandedIncome === income.id;
+                  return (
+                    <div key={income.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                      <button onClick={() => setExpandedIncome(isExpanded ? null : income.id)}
+                        className="w-full p-4 flex items-start gap-3 text-left cursor-pointer active:bg-gray-50 transition-colors">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-black text-gray-900 mb-1">{income.incomeName}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] text-gray-400">{fmtDate(income.dateReceived)}</span>
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-full border border-blue-100">
+                              {incomeSourceLabel[income.incomeSource] ?? '📌 Other'}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-base font-black text-green-600">
+                            ₹{income.amount.toLocaleString()}
+                          </p>
+                          {income.description && (
+                            <svg className={`w-4 h-4 text-gray-300 ml-auto mt-1 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                              fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          )}
+                        </div>
+                      </button>
+
+                      {isExpanded && income.description && (
+                        <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 animate-fadeIn">
+                          <p className="text-xs text-gray-600 leading-relaxed">{income.description}</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* ══ EXPENSES TAB ══════════════════════════════════════════════ */}
+            {activeTab === 'expenses' && (
+              <div className="space-y-2 animate-fadeIn">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">
+                    {expenses.length} Record{expenses.length !== 1 ? 's' : ''}
+                  </p>
+                  <p className="text-xs font-black text-red-600">
+                    ₹{financialSummary.totalExpenses.toLocaleString()} total
+                  </p>
+                </div>
+
+                {expenses.length === 0 ? (
+                  <EmptyState icon="💸" title="No expenses recorded yet"
+                    sub="Club expenses will appear here once the treasurer records them" />
+                ) : (
+                  <>
+                    {/* Turf payments */}
+                    {eventExpenses.length > 0 && (
+                      <>
+                        <div className="px-1 pt-1">
+                          <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">
+                            🏟️ Turf Payments · {eventExpenses.length}
+                          </p>
+                        </div>
+                        {eventExpenses.map(expense => (
+                          <ExpenseCard key={expense.id} expense={expense}
+                            expanded={expandedExpense === expense.id}
+                            onToggle={() => setExpandedExpense(expandedExpense === expense.id ? null : expense.id)}
+                            label={expense.eventTitle ?? '—'}
+                            sublabel="Turf vendor payment"
+                            badgeClass="bg-blue-50 text-blue-600 border-blue-100"
+                            badge="🏟️ Turf"
+                            fmtDate={fmtDate} />
+                        ))}
+                      </>
+                    )}
+
+                    {/* Other expenses */}
+                    {otherExpenses.length > 0 && (
+                      <>
+                        <div className="px-1 pt-2">
+                          <p className="text-[10px] font-black text-orange-500 uppercase tracking-widest">
+                            🛍️ Other Expenses · {otherExpenses.length}
+                          </p>
+                        </div>
+                        {otherExpenses.map(expense => (
+                          <ExpenseCard key={expense.id} expense={expense}
+                            expanded={expandedExpense === expense.id}
+                            onToggle={() => setExpandedExpense(expandedExpense === expense.id ? null : expense.id)}
+                            label={expense.expenseName ?? '—'}
+                            sublabel={expense.description ?? undefined}
+                            badgeClass="bg-orange-50 text-orange-600 border-orange-100"
+                            badge="🛍️ Other"
+                            fmtDate={fmtDate} />
+                        ))}
+                      </>
+                    )}
+
+                    {/* Total strip */}
+                    <div className="bg-gray-900 rounded-2xl p-4 flex items-center justify-between mt-2">
+                      <p className="text-xs font-black text-gray-400 uppercase tracking-wide">Total Expenses</p>
+                      <p className="text-lg font-black text-red-400">
+                        ₹{financialSummary.totalExpenses.toLocaleString()}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
+
+      <style jsx>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: translateY(0) } }
+        .animate-fadeIn { animation: fadeIn 0.2s ease-out; }
+      `}</style>
+    </div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function EmptyState({ icon, title, sub }: { icon: string; title: string; sub: string }) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
+      <div className="w-14 h-14 mx-auto mb-3 bg-gray-100 rounded-full flex items-center justify-center text-3xl">
+        {icon}
+      </div>
+      <p className="text-sm font-bold text-gray-900">{title}</p>
+      <p className="text-xs text-gray-400 mt-1">{sub}</p>
+    </div>
+  );
+}
+
+function ExpenseCard({
+  expense, expanded, onToggle, label, sublabel, badge, badgeClass, fmtDate,
+}: {
+  expense: { id: string; amount: number; dateSpent: Timestamp; description?: string | null };
+  expanded: boolean;
+  onToggle: () => void;
+  label: string;
+  sublabel?: string;
+  badge: string;
+  badgeClass: string;
+  fmtDate: (ts: Timestamp) => string;
+}) {
+  const hasDetail = !!sublabel;
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <button onClick={onToggle}
+        className="w-full p-4 flex items-start gap-3 text-left cursor-pointer active:bg-gray-50 transition-colors">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-black text-gray-900 mb-1">{label}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] text-gray-400">{fmtDate(expense.dateSpent)}</span>
+            <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${badgeClass}`}>
+              {badge}
+            </span>
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className="text-base font-black text-red-600">₹{expense.amount.toLocaleString()}</p>
+          {hasDetail && (
+            <svg className={`w-4 h-4 text-gray-300 ml-auto mt-1 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+              fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          )}
+        </div>
+      </button>
+
+      {expanded && hasDetail && (
+        <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 animate-fadeIn">
+          <p className="text-xs text-gray-600 leading-relaxed">{sublabel}</p>
+        </div>
+      )}
     </div>
   );
 }

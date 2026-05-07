@@ -52,7 +52,7 @@ const SOURCE_LABELS: Record<string, string> = {
   other:           'Other',
 };
 
-export default function PlayerTeamFund() {
+export default function SecretaryTeamFund() {
   const { role, loading, user } = useAuth();
   const router = useRouter();
 
@@ -65,11 +65,11 @@ export default function PlayerTeamFund() {
   const [financialSummary, setFinancialSummary] = useState({ totalIncome: 0, totalExpenses: 0, availableBalance: 0 });
 
   useEffect(() => {
-    if (!loading && role !== 'player') router.push('/login');
+    if (!loading && role !== 'secretary') router.push('/login');
   }, [role, loading, router]);
 
   useEffect(() => {
-    if (role !== 'player') return;
+    if (role !== 'secretary') return;
     setLoadingData(true);
     const unsub = onSnapshot(
       query(collection(db, 'expenses'), orderBy('dateSpent', 'desc')),
@@ -79,7 +79,7 @@ export default function PlayerTeamFund() {
   }, [role]);
 
   useEffect(() => {
-    if (role !== 'player') return;
+    if (role !== 'secretary') return;
     const unsub = onSnapshot(
       query(collection(db, 'events'), orderBy('date', 'desc')),
       snap => {
@@ -104,7 +104,7 @@ export default function PlayerTeamFund() {
   }, [role]);
 
   useEffect(() => {
-    if (role !== 'player') return;
+    if (role !== 'secretary') return;
     const unsub = onSnapshot(
       query(collection(db, 'income'), orderBy('dateReceived', 'desc')),
       snap => setIncomes(snap.docs.map(d => ({ id: d.id, ...d.data(), description: d.data().description || null } as Income)))
@@ -113,19 +113,19 @@ export default function PlayerTeamFund() {
   }, [role]);
 
   useEffect(() => {
-    if (role !== 'player') return;
+    if (role !== 'secretary') return;
     getFinancialSummary().then(setFinancialSummary).catch(console.error);
   }, [role, expenses, events, incomes]);
 
-  const toggleEvent    = (id: string) => setExpandedEvent(expandedEvent === id ? null : id);
-  const calcPerPlayer  = (total: number, count: number) =>
+  const toggleEvent   = (id: string) => setExpandedEvent(expandedEvent === id ? null : id);
+  const calcPerPlayer = (total: number, count: number) =>
     count === 0 ? 0 : Math.max(Math.ceil((total / count) / 10) * 10, 100);
 
-  const eventExpenses  = expenses.filter(e => e.expenseType === 'event_payment');
-  const otherExpenses  = expenses.filter(e => e.expenseType === 'other_expense');
-  const balancePos     = financialSummary.availableBalance >= 0;
+  const eventExpenses = expenses.filter(e => e.expenseType === 'event_payment');
+  const otherExpenses = expenses.filter(e => e.expenseType === 'other_expense');
+  const balancePos    = financialSummary.availableBalance >= 0;
 
-  if (loading || !user || role !== 'player') {
+  if (loading || !user || role !== 'secretary') {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="relative w-12 h-12">
@@ -234,10 +234,10 @@ export default function PlayerTeamFund() {
                 {/* 2×2 quick stats */}
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { label: 'Total Events',    value: String(events.length),   sub: 'with collections'              },
-                    { label: 'Direct Income',   value: String(incomes.length),  sub: 'sponsorships & donations'      },
-                    { label: 'Total Expenses',  value: String(expenses.length), sub: `${eventExpenses.length} turf · ${otherExpenses.length} other` },
-                    { label: 'Balance',         value: `₹${financialSummary.availableBalance.toLocaleString()}`,
+                    { label: 'Total Events',   value: String(events.length),   sub: 'with collections'                                              },
+                    { label: 'Direct Income',  value: String(incomes.length),  sub: 'sponsorships & donations'                                      },
+                    { label: 'Total Expenses', value: String(expenses.length), sub: `${eventExpenses.length} turf · ${otherExpenses.length} other`  },
+                    { label: 'Balance',        value: `₹${financialSummary.availableBalance.toLocaleString()}`,
                       sub: balancePos ? 'available funds' : 'deficit', red: !balancePos },
                   ].map(({ label, value, sub, red }) => (
                     <div key={label} className={`rounded-2xl border shadow-sm p-4 ${red ? 'bg-red-50 border-red-100' : 'bg-white border-gray-100'}`}>
@@ -338,7 +338,7 @@ export default function PlayerTeamFund() {
                       {/* Expanded detail */}
                       {isExpanded && (
                         <div className="px-4 pb-4 space-y-2 border-t border-gray-100 pt-3 animate-slideDown">
-                          {/* 2×2+1 grid — avoids squishing */}
+                          {/* 2×2 grid */}
                           <div className="grid grid-cols-2 gap-2">
                             {[
                               { label: 'Turf Cost',  value: `₹${event.totalAmount.toLocaleString()}` },
@@ -435,7 +435,6 @@ export default function PlayerTeamFund() {
                           {eventExpenses.map(e => (
                             <div key={e.id} className="px-4 py-3 flex items-center justify-between gap-3">
                               <div className="flex-1 min-w-0">
-                                {/* Full title — no truncation */}
                                 <p className="text-xs font-bold text-gray-900 break-words leading-snug">{e.eventTitle}</p>
                                 <p className="text-[10px] text-gray-400 mt-0.5">
                                   {e.dateSpent.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}

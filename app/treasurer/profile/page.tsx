@@ -3,7 +3,9 @@
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Timestamp, doc, getDoc } from 'firebase/firestore';
+import {
+  Timestamp, doc, getDoc,
+} from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -33,7 +35,10 @@ const POSITION_COLOR: Record<string, string> = {
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 function Avatar({
-  photoURL, initials, jerseyNumber, loading,
+  photoURL,
+  initials,
+  jerseyNumber,
+  loading,
 }: {
   photoURL: string | null;
   initials: string;
@@ -69,7 +74,7 @@ function Avatar({
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function PlayerProfile() {
+export default function TreasurerProfile() {
   const { role, loading, user } = useAuth();
   const router = useRouter();
 
@@ -78,15 +83,13 @@ export default function PlayerProfile() {
   const [userData,       setUserData]       = useState<UserData | null>(null);
   const [loadingUser,    setLoadingUser]    = useState(true);
 
-  // ── Auth guard ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (loading) return;
-    if (!user || role !== 'player') router.push('/login');
+    if (!user || role !== 'treasurer') router.push('/login');
   }, [role, loading, user, router]);
 
-  // ── Fetch user doc ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (!user || role !== 'player') return;
+    if (!user || role !== 'treasurer') return;
     (async () => {
       try {
         setLoadingUser(true);
@@ -97,9 +100,8 @@ export default function PlayerProfile() {
     })();
   }, [user, role]);
 
-  // ── Fetch userProfile ────────────────────────────────────────────────────
   useEffect(() => {
-    if (!user || role !== 'player') return;
+    if (!user || role !== 'treasurer') return;
     (async () => {
       try {
         setLoadingProfile(true);
@@ -113,8 +115,7 @@ export default function PlayerProfile() {
     })();
   }, [user, role]);
 
-  // ── Loading guard ────────────────────────────────────────────────────────
-  if (loading || !user || role !== 'player') {
+  if (loading || !user || role !== 'treasurer') {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="relative w-12 h-12">
@@ -125,15 +126,13 @@ export default function PlayerProfile() {
     );
   }
 
-  // ── Derived ───────────────────────────────────────────────────────────────
-  const displayName = profile?.fullName || user.displayName || 'Player';
+  const displayName = profile?.fullName || user.displayName || 'Treasurer';
   const initials    = displayName.split(' ').map((w: string) => w[0] ?? '').join('').slice(0, 2).toUpperCase();
   const posColor    = profile ? (POSITION_COLOR[profile.position] ?? 'bg-gray-100 text-gray-600 border-gray-200') : '';
   const memberSince = userData?.createdAt
     ? userData.createdAt.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
     : null;
 
-  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50">
 
@@ -186,7 +185,6 @@ export default function PlayerProfile() {
       ) : (
         <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center">
           <span className="text-xl font-black text-white">{initials}</span>
-
         </div>
       )}
 
@@ -206,7 +204,7 @@ export default function PlayerProfile() {
       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
         <div className="flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 bg-red-500 rounded-full" />
-          <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Player</span>
+          <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Treasurer</span>
         </div>
         {!loadingProfile && profile && (
           <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">
@@ -238,12 +236,12 @@ export default function PlayerProfile() {
           ) : (
             <div className="divide-y divide-gray-100">
               {[
-                { label: 'Full Name',    value: profile?.fullName ?? 'Not set'                                              },
-                { label: 'Email',        value: user.email ?? '—',                                       small: true        },
-                { label: 'Position',     value: profile ? (POSITION_MAP[profile.position] ?? profile.position) : 'Not set'  },
-                { label: 'Jersey No.',   value: profile ? `#${profile.jerseyNumber}` : 'Not set'                            },
-                { label: 'Role',         value: 'Player'                                                                     },
-                { label: 'Member Since', value: memberSince ?? 'Not available'                                               },
+                { label: 'Full Name',    value: profile?.fullName ?? 'Not set'                                           },
+                { label: 'Email',        value: user.email ?? '—',                              small: true              },
+                { label: 'Position',     value: profile ? (POSITION_MAP[profile.position] ?? profile.position) : 'Not set' },
+                { label: 'Jersey No.',   value: profile ? `#${profile.jerseyNumber}` : 'Not set'                         },
+                { label: 'Role',         value: 'Treasurer'                                                               },
+                { label: 'Member Since', value: memberSince ?? 'Not available'                                            },
               ].map(({ label, value, small }) => (
                 <div key={label} className="flex items-center justify-between gap-4 px-5 py-3.5">
                   <p className="text-xs font-semibold text-gray-400 flex-shrink-0 w-24">{label}</p>
