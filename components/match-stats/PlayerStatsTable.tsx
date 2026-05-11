@@ -159,16 +159,16 @@ export default function PlayerStatsTable({ stats, loading }: PlayerStatsTablePro
       </div>
 
       {/* ── Table ── */}
-      <table className="w-full table-fixed">
-        <colgroup>
-          <col style={{ width: '36px' }} />  {/* # */}
-          <col />                             {/* Name — flex */}
-          <col style={{ width: '32px' }} />  {/* MP */}
-          <col style={{ width: '28px' }} />  {/* W */}
-          <col style={{ width: '28px' }} />  {/* D */}
-          <col style={{ width: '28px' }} />  {/* L */}
-          <col style={{ width: '38px' }} />  {/* G */}
-        </colgroup>
+<table className="w-full table-fixed">
+  <colgroup>
+    <col style={{ width: '36px' }} />
+    <col />
+    <col style={{ width: '32px' }} />
+    <col style={{ width: '28px' }} />
+    <col style={{ width: '28px' }} />
+    <col style={{ width: '28px' }} />
+    <col style={{ width: '38px' }} />
+  </colgroup>
 
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50">
@@ -202,7 +202,7 @@ export default function PlayerStatsTable({ stats, loading }: PlayerStatsTablePro
             <th className={`text-center pr-3 pl-0.5 py-2 text-[9px] font-black uppercase tracking-wide ${
               sortKey === 'goals' ? 'text-gray-900' : 'text-gray-400'
             }`}>
-              Goals
+              G
             </th>
           </tr>
         </thead>

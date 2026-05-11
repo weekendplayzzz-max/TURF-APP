@@ -162,6 +162,18 @@ export default function TreasurerDashboard() {
                     icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />,
                   },
                   {
+  label: 'Match Stats',
+  sub: 'View standings & results',
+  path: '/treasurer/view-match-stats',
+  icon: (
+    <>
+      <circle cx="12" cy="12" r="9" strokeWidth={2} stroke="currentColor" fill="none" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M12 3c0 0 2.5 3.5 2.5 9S12 21 12 21M12 3c0 0-2.5 3.5-2.5 9S12 21 12 21M3.6 9h16.8M3.6 15h16.8" />
+    </>
+  ),
+},
+                  {
                     label: 'My Payments',
                     sub: 'View payment history',
                     path: '/treasurer/payment',

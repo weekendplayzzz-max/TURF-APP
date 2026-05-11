@@ -80,13 +80,13 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
                 <div
                   key={gs.playerId}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-2xl ${
-                    isTop ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50'
-                  }`}
+  isTop ? 'bg-red-50 border border-red-100' : 'bg-gray-50'
+}`}
                 >
                   {/* Rank badge */}
                   <div className={`w-7 h-7 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-black ${
-                    isTop ? 'bg-yellow-400 text-white' : 'bg-gray-200 text-gray-500'
-                  }`}>
+  isTop ? 'bg-red-600 text-white' : 'bg-gray-200 text-gray-500'
+}`}>
                     {isTop ? '1' : idx + 1}
                   </div>
                   {/* Name + team */}
@@ -99,10 +99,10 @@ export default function MatchDetailView({ match }: { match: MatchDetail }) {
                   </div>
                   {/* Goals pill */}
                   <div className={`flex items-center gap-1 px-2.5 py-1 rounded-xl flex-shrink-0 ${
-                    isTop ? 'bg-yellow-100' : 'bg-gray-200'
-                  }`}>
+  isTop ? 'bg-red-100' : 'bg-gray-200'
+}`}>
                     <span className="text-sm">⚽</span>
-                    <span className={`text-sm font-black ${isTop ? 'text-yellow-700' : 'text-gray-600'}`}>
+                    <span className={`text-sm font-black ${isTop ? 'text-red-600' : 'text-gray-600'}`}>
                       {gs.goals}
                     </span>
                   </div>
