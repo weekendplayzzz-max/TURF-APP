@@ -9,17 +9,24 @@ import {
   collection, getDocs, doc, updateDoc,
   Timestamp, query, orderBy, where,
 } from 'firebase/firestore';
-import {
-  calculatePerPlayerAmount,
-  closeEventHelper,
-  reopenEventHelper,
-  recalculatePayments,
-  checkAndAutoCloseEvents,
-  fetchParticipantCounts,
-  updateEventTotalCollected,
-  deleteEventHelper,
-} from '@/lib/eventManagement';
+import { calculatePerPlayerAmount, 
+  closeEventHelper, 
+  reopenEventHelper, 
+  recalculatePayments, 
+  checkAndAutoCloseEvents, 
+  fetchParticipantCounts, 
+  updateEventTotalCollected, 
+  deleteEventHelper, removePlayersFromEvent, 
+  type RemovePlayersResult, } from '@/lib/eventManagement'
 import type { Event, EventEditHistory } from '@/lib/eventManagement';
+interface RemoveParticipant {
+  id: string
+  playerId: string
+  playerName: string
+  playerEmail: string
+  isPaid: boolean
+  playerType: string
+}
 
 export default function ManageEvents() {
   const { role, loading, user } = useAuth();
@@ -49,6 +56,14 @@ export default function ManageEvents() {
     title: '', totalAmount: '', durationHours: '',
     date: '', time: '', deadlineDate: '', deadlineTime: '',
   });
+
+  // ── Remove Players state ──
+const [showRemovePlayersModal, setShowRemovePlayersModal] = useState(false)
+const [eventForRemoval, setEventForRemoval] = useState<Event | null>(null)
+const [participantsForRemoval, setParticipantsForRemoval] = useState<RemoveParticipant[]>([])
+const [selectedForRemoval, setSelectedForRemoval] = useState<Set<string>>(new Set())
+const [loadingParticipants, setLoadingParticipants] = useState(false)
+const [removingPlayers, setRemovingPlayers] = useState(false)
 
   useEffect(() => {
     if (!loading && role !== 'secretary') router.push('/login');
@@ -254,6 +269,107 @@ export default function ManageEvents() {
     }
   };
 
+  // ── Remove Players handlers ──
+const openRemovePlayersModal = async (event: Event) => {
+  setEventForRemoval(event)
+  setSelectedForRemoval(new Set())
+  setShowRemovePlayersModal(true)
+  setLoadingParticipants(true)
+  try {
+    const participantsRef = collection(db, 'eventParticipants')
+    const participantsQuery = query(
+      participantsRef,
+      where('eventId', '==', event.id),
+      where('currentStatus', '==', 'joined')
+    )
+    const participantsSnapshot = await getDocs(participantsQuery)
+
+    const paymentsRef = collection(db, 'eventPayments')
+    const paymentsQuery = query(paymentsRef, where('eventId', '==', event.id))
+    const paymentsSnapshot = await getDocs(paymentsQuery)
+
+    const paidMap: { [playerId: string]: boolean } = {}
+    paymentsSnapshot.forEach((docSnap) => {
+      const data = docSnap.data()
+      paidMap[data.playerId] = data.paymentStatus === 'paid'
+    })
+
+    const list: RemoveParticipant[] = []
+    participantsSnapshot.forEach((docSnap) => {
+      const data = docSnap.data()
+      list.push({
+        id: docSnap.id,
+        playerId: data.playerId,
+        playerName: data.playerName,
+        playerEmail: data.playerEmail || '',
+        isPaid: paidMap[data.playerId] || false,
+        playerType: data.playerType || 'regular',
+      })
+    })
+
+    list.sort((a, b) => {
+      if (a.isPaid !== b.isPaid) return a.isPaid ? -1 : 1
+      return a.playerName.localeCompare(b.playerName)
+    })
+
+    setParticipantsForRemoval(list)
+  } catch (error) {
+    console.error('Error fetching participants for removal:', error)
+    setMessage('Failed to load participants')
+    setTimeout(() => setMessage(''), 2000)
+    setShowRemovePlayersModal(false)
+  } finally {
+    setLoadingParticipants(false)
+  }
+}
+
+const togglePlayerForRemoval = (playerId: string) => {
+  setSelectedForRemoval((prev) => {
+    const next = new Set(prev)
+    if (next.has(playerId)) {
+      next.delete(playerId)
+    } else {
+      next.add(playerId)
+    }
+    return next
+  })
+}
+
+const confirmRemovePlayers = async () => {
+  if (!eventForRemoval || selectedForRemoval.size === 0) return
+  try {
+    setRemovingPlayers(true)
+    setShowRemovePlayersModal(false)
+
+    const result = await removePlayersFromEvent(
+      eventForRemoval.id,
+      Array.from(selectedForRemoval),
+      eventForRemoval.status,
+      eventForRemoval.totalAmount
+    )
+
+    if (result.success) {
+      setSuccessMessage(
+        `${result.removedCount} player${result.removedCount > 1 ? 's' : ''} removed from "${eventForRemoval.title}" successfully!`
+      )
+      setShowSuccessDialog(true)
+      await fetchEvents()
+    } else {
+      setMessage(result.message)
+      setTimeout(() => setMessage(''), 3000)
+    }
+  } catch (error) {
+    console.error('Error removing players:', error)
+    setMessage('Failed to remove players')
+    setTimeout(() => setMessage(''), 3000)
+  } finally {
+    setRemovingPlayers(false)
+    setEventForRemoval(null)
+    setSelectedForRemoval(new Set())
+    setParticipantsForRemoval([])
+  }
+}
+
   // ─────────────────────────────────────────────────────────────────────────────
 
   if (loading || !user || role !== 'secretary') {
@@ -407,6 +523,152 @@ export default function ManageEvents() {
           </div>
         </div>
       )}
+
+      {/* ── Remove Players Modal ── */}
+{showRemovePlayersModal && eventForRemoval && (
+  <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 animate-fadeIn">
+    <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl shadow-2xl px-5 pt-6 pb-6 animate-slideUp max-h-[90vh] flex flex-col">
+
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-10 h-10 bg-red-50 rounded-full flex items-center justify-center flex-shrink-0">
+          <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+          </svg>
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-base font-black text-gray-900">Remove Players</h2>
+          <p className="text-xs text-gray-400 truncate">{eventForRemoval.title}</p>
+        </div>
+        <button
+          onClick={() => {
+            setShowRemovePlayersModal(false)
+            setEventForRemoval(null)
+            setSelectedForRemoval(new Set())
+            setParticipantsForRemoval([])
+          }}
+          className="p-2 rounded-xl bg-gray-100 active:bg-gray-200 cursor-pointer"
+        >
+          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Paid warning */}
+      {Array.from(selectedForRemoval).some(
+        (pid) => participantsForRemoval.find((p) => p.playerId === pid)?.isPaid
+      ) && (
+        <div className="mb-2 bg-yellow-50 border border-yellow-200 rounded-2xl px-3 py-2.5 flex items-start gap-2">
+          <svg className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <p className="text-xs text-yellow-800 font-semibold">
+            Selected player(s) have paid. Removing will <span className="font-black">delete their payment record</span> and recalculate all dues.
+          </p>
+        </div>
+      )}
+
+      {/* Selection count */}
+      {selectedForRemoval.size > 0 && (
+        <p className="text-xs text-gray-400 mb-1">
+          <span className="font-black text-red-600">{selectedForRemoval.size}</span> player{selectedForRemoval.size > 1 ? 's' : ''} selected
+        </p>
+      )}
+
+      {/* Participant list */}
+      <div className="flex-1 overflow-y-auto space-y-2 min-h-0 mt-1 pr-0.5">
+        {loadingParticipants ? (
+          <div className="flex items-center justify-center py-10">
+            <div className="relative w-10 h-10">
+              <div className="absolute inset-0 border-4 border-red-600/20 rounded-full" />
+              <div className="absolute inset-0 border-4 border-red-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          </div>
+        ) : participantsForRemoval.length === 0 ? (
+          <div className="text-center py-10">
+            <p className="text-sm font-bold text-gray-400">No participants found</p>
+          </div>
+        ) : (
+          participantsForRemoval.map((participant) => {
+            const isSelected = selectedForRemoval.has(participant.playerId)
+            return (
+              <div
+                key={participant.playerId}
+                onClick={() => togglePlayerForRemoval(participant.playerId)}
+                className={`flex items-center gap-3 p-3 rounded-2xl border-2 cursor-pointer transition-all active:scale-[0.98] ${
+                  isSelected
+                    ? 'border-red-500 bg-red-50'
+                    : 'border-gray-100 bg-white hover:border-gray-200'
+                }`}
+              >
+                {/* Checkbox */}
+                <div className={`w-5 h-5 rounded-lg border-2 flex-shrink-0 flex items-center justify-center transition-colors ${
+                  isSelected ? 'bg-red-600 border-red-600' : 'border-gray-300'
+                }`}>
+                  {isSelected && (
+                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                </div>
+
+                {/* Avatar */}
+                <div className="w-8 h-8 bg-red-600 text-white rounded-full flex items-center justify-center font-black text-sm flex-shrink-0">
+                  {participant.playerName.charAt(0).toUpperCase()}
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-gray-900 truncate">{participant.playerName}</p>
+                  <p className="text-xs text-gray-400 truncate">{participant.playerEmail || 'No email'}</p>
+                </div>
+
+                {/* Badges */}
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {participant.isPaid && (
+                    <span className="px-1.5 py-0.5 bg-yellow-50 text-yellow-700 text-[10px] font-black rounded-full border border-yellow-200">
+                      PAID
+                    </span>
+                  )}
+                  {participant.playerType === 'guest' && (
+                    <span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-black rounded-full border border-blue-200">
+                      Guest
+                    </span>
+                  )}
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* Action buttons */}
+      <div className="mt-4 space-y-2 pt-3 border-t border-gray-100">
+        <button
+          onClick={confirmRemovePlayers}
+          disabled={selectedForRemoval.size === 0 || loadingParticipants}
+          className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-2xl transition-colors cursor-pointer text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {selectedForRemoval.size === 0
+            ? 'Select Players to Remove'
+            : `Remove ${selectedForRemoval.size} Player${selectedForRemoval.size > 1 ? 's' : ''}`}
+        </button>
+        <button
+          onClick={() => {
+            setShowRemovePlayersModal(false)
+            setEventForRemoval(null)
+            setSelectedForRemoval(new Set())
+            setParticipantsForRemoval([])
+          }}
+          className="w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-2xl transition-colors cursor-pointer text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* ── EDIT MODAL ─────────────────────────────────────────────────────── */}
       {showEditModal && selectedEvent && (
@@ -698,6 +960,17 @@ export default function ManageEvents() {
                         className="flex-1 py-2 bg-white hover:bg-gray-50 text-gray-700 font-bold rounded-xl border border-gray-200 transition-colors cursor-pointer text-xs">
                         Edit
                       </button>
+                      {/* Remove Players Button */}
+<button
+  onClick={() => openRemovePlayersModal(event)}
+  disabled={removingPlayers}
+  className="flex-1 py-2 bg-white hover:bg-red-50 text-red-600 font-bold rounded-xl border border-red-200 transition-colors cursor-pointer text-xs flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
+>
+  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+  </svg>
+  <span></span>
+</button>
                       <button onClick={() => router.push(`/secretary/event-participants/${event.id}`)}
                         className="flex-1 py-2 bg-white hover:bg-gray-50 text-gray-700 font-bold rounded-xl border border-gray-200 transition-colors cursor-pointer text-xs flex items-center justify-center gap-1">
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
