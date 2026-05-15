@@ -137,6 +137,122 @@ export async function deleteEventHelper(eventId: string): Promise<{
   }
 }
 
+// ==================== REMOVE PLAYERS FROM EVENT ====================
+
+export interface RemovePlayersResult {
+  success: boolean;
+  removedCount: number;
+  message: string;
+}
+
+/**
+ * Remove specific players from an event — works for ALL statuses (open/closed/locked)
+ * For each player removed:
+ *   1. Deletes their eventParticipants doc
+ *   2. Deletes their eventPayments doc (if exists)
+ *   3. Decrements event participantCount
+ *   4. If event is closed/locked: recalculates remaining players' dues + updates totalCollected
+ *
+ * Guest handling: Only removes the exact playerIds passed — guests are NOT auto-removed
+ */
+export async function removePlayersFromEvent(
+  eventId: string,
+  playerIdsToRemove: string[],
+  eventStatus: 'open' | 'closed' | 'locked',
+  currentTotalAmount: number
+): Promise<RemovePlayersResult> {
+  if (playerIdsToRemove.length === 0) {
+    return { success: false, removedCount: 0, message: 'No players selected for removal' };
+  }
+
+  try {
+    console.log(`🗑️ Removing ${playerIdsToRemove.length} player(s) from event ${eventId}`);
+
+    const batch = writeBatch(db);
+    let removedCount = 0;
+
+    // ── Step 1: Find & delete eventParticipants docs ──
+    const participantsRef = collection(db, 'eventParticipants');
+    const participantsQuery = query(participantsRef, where('eventId', '==', eventId));
+    const participantsSnapshot = await getDocs(participantsQuery);
+
+    participantsSnapshot.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (playerIdsToRemove.includes(data.playerId)) {
+        batch.delete(doc(db, 'eventParticipants', docSnap.id));
+        removedCount++;
+      }
+    });
+
+    // ── Step 2: Find & delete eventPayments docs ──
+    const paymentsRef = collection(db, 'eventPayments');
+    const paymentsQuery = query(paymentsRef, where('eventId', '==', eventId));
+    const paymentsSnapshot = await getDocs(paymentsQuery);
+
+    paymentsSnapshot.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (playerIdsToRemove.includes(data.playerId)) {
+        batch.delete(doc(db, 'eventPayments', docSnap.id));
+      }
+    });
+
+    // ── Step 3: Compute new participantCount ──
+    // Count currently joined participants EXCLUDING the ones being removed
+    let remainingCount = 0;
+    participantsSnapshot.docs.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (
+        data.currentStatus === 'joined' &&
+        !playerIdsToRemove.includes(data.playerId)
+      ) {
+        remainingCount++;
+      }
+    });
+
+    // ── Step 4: Update event participantCount in same batch ──
+    const eventRef = doc(db, 'events', eventId);
+    batch.update(eventRef, {
+      participantCount: remainingCount,
+      lastEditedAt: Timestamp.now(),
+    });
+
+    // ── COMMIT everything atomically ──
+    await batch.commit();
+
+    console.log(
+      `✅ Removed ${removedCount} player(s). Remaining: ${remainingCount}`
+    );
+
+    // ── Step 5: Post-commit — recalculate dues for closed/locked events ──
+    // Must be done after commit because recalculatePayments reads Firestore
+    if (eventStatus === 'closed' || eventStatus === 'locked') {
+      if (remainingCount > 0) {
+        await recalculatePayments(eventId, currentTotalAmount, remainingCount);
+      }
+      // updateEventTotalCollected is already called inside recalculatePayments
+      // But if remainingCount is 0, manually zero it out
+      if (remainingCount === 0) {
+        await updateDoc(doc(db, 'events', eventId), {
+          totalCollected: 0,
+        });
+      }
+    }
+
+    return {
+      success: true,
+      removedCount,
+      message: `Successfully removed ${removedCount} player${removedCount > 1 ? 's' : ''} from the event.`,
+    };
+  } catch (error) {
+    console.error('❌ removePlayersFromEvent failed:', error);
+    return {
+      success: false,
+      removedCount: 0,
+      message: 'Failed to remove players. Please try again.',
+    };
+  }
+}
+
 // ==================== CALCULATION HELPERS ====================
 
 /**
