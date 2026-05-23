@@ -1,13 +1,18 @@
 import { db } from './firebase';
 import { collection, getDocs, doc, updateDoc, setDoc, getDoc, Timestamp } from 'firebase/firestore';
 
+
 /**
  * Calculate per-player amount with rounding rules
+ * - If total amount is ₹0, each player pays ₹0
  * - Minimum ₹100
  * - Rounded to nearest ₹10
  */
 export function calculatePerPlayerAmount(totalAmount: number, playerCount: number): number {
   if (playerCount === 0) return 0;
+
+  // Special case: if total amount is 0, each player amount should also be 0
+  if (totalAmount === 0) return 0;
 
   const rawAmount = totalAmount / playerCount;
 
@@ -21,6 +26,7 @@ export function calculatePerPlayerAmount(totalAmount: number, playerCount: numbe
   return Math.max(rounded, 100);
 }
 
+
 interface EventData {
   title: string;
   date: Timestamp;
@@ -29,6 +35,7 @@ interface EventData {
   participantCount: number;
   editHistory?: EventEditHistory[];
 }
+
 
 interface EventEditHistory {
   action: string;
@@ -43,6 +50,7 @@ interface EventEditHistory {
   oldPerPlayerAmount?: number;
   newPerPlayerAmount?: number;
 }
+
 
 /**
  * Create payment records for all participants when event closes
@@ -90,6 +98,7 @@ export async function createEventPayments(eventId: string, eventData: EventData,
     throw error;
   }
 }
+
 
 /**
  * Recalculate all payments for an event after changes
@@ -148,6 +157,7 @@ export async function recalculateEventPayments(eventId: string, newTotalAmount: 
     throw error;
   }
 }
+
 
 /**
  * Check all events and auto-close those past deadline
@@ -212,6 +222,7 @@ export async function checkAndAutoCloseEvents() {
     console.error('Error auto-closing events:', error);
   }
 }
+
 
 /**
  * Add a player to a closed event and recalculate payments
