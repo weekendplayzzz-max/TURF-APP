@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { resolveName } from '@/lib/resolvePlayerNames';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,11 +64,16 @@ function sortStats(data: PlayerStat[], key: SortKey): PlayerStat[] {
 interface PlayerStatsTableProps {
   stats: PlayerStat[];
   loading: boolean;
+  nameMap?: Map<string, string>;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function PlayerStatsTable({ stats, loading }: PlayerStatsTableProps) {
+export default function PlayerStatsTable({
+  stats,
+  loading,
+  nameMap = new Map(),
+}: PlayerStatsTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('played');
 
   const sorted = sortStats(stats, sortKey);
@@ -93,7 +99,7 @@ export default function PlayerStatsTable({ stats, loading }: PlayerStatsTablePro
     }
   };
 
-  // ── Loading skeleton
+  // ── Loading skeleton ───────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-4 space-y-3">
@@ -115,7 +121,7 @@ export default function PlayerStatsTable({ stats, loading }: PlayerStatsTablePro
     );
   }
 
-  // ── Empty state
+  // ── Empty state ────────────────────────────────────────────────────────────
   if (stats.length === 0) {
     return (
       <div className="bg-white rounded-3xl border border-gray-100 shadow-sm p-8 text-center">
@@ -159,16 +165,16 @@ export default function PlayerStatsTable({ stats, loading }: PlayerStatsTablePro
       </div>
 
       {/* ── Table ── */}
-<table className="w-full table-fixed">
-  <colgroup>
-    <col style={{ width: '36px' }} />
-    <col />
-    <col style={{ width: '32px' }} />
-    <col style={{ width: '28px' }} />
-    <col style={{ width: '28px' }} />
-    <col style={{ width: '28px' }} />
-    <col style={{ width: '38px' }} />
-  </colgroup>
+      <table className="w-full table-fixed">
+        <colgroup>
+          <col style={{ width: '36px' }} />
+          <col />
+          <col style={{ width: '32px' }} />
+          <col style={{ width: '28px' }} />
+          <col style={{ width: '28px' }} />
+          <col style={{ width: '28px' }} />
+          <col style={{ width: '38px' }} />
+        </colgroup>
 
         <thead>
           <tr className="border-b border-gray-100 bg-gray-50">
@@ -198,7 +204,6 @@ export default function PlayerStatsTable({ stats, loading }: PlayerStatsTablePro
             }`}>
               L
             </th>
-            {/* Goals header — text label, not emoji */}
             <th className={`text-center pr-3 pl-0.5 py-2 text-[9px] font-black uppercase tracking-wide ${
               sortKey === 'goals' ? 'text-gray-900' : 'text-gray-400'
             }`}>
@@ -211,6 +216,7 @@ export default function PlayerStatsTable({ stats, loading }: PlayerStatsTablePro
           {sorted.map((player, idx) => {
             const isTopRank = getActiveValue(player) === topValue && topValue > 0;
             const isEven = idx % 2 === 0;
+            const displayName = resolveName(player.playerId, player.playerName, nameMap);
 
             return (
               <tr
@@ -219,7 +225,7 @@ export default function PlayerStatsTable({ stats, loading }: PlayerStatsTablePro
                   isEven ? 'bg-white' : 'bg-gray-50/40'
                 }`}
               >
-                {/* Rank — red accent for top, neutral for rest */}
+                {/* Rank */}
                 <td className="pl-3 pr-1 py-2.5">
                   {isTopRank ? (
                     <div className="w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-black bg-red-600 text-white">
@@ -232,7 +238,7 @@ export default function PlayerStatsTable({ stats, loading }: PlayerStatsTablePro
                   )}
                 </td>
 
-                {/* Name — red left border accent for top rank only */}
+                {/* Name */}
                 <td className="px-1 py-2.5">
                   <div className="flex items-center gap-1.5">
                     {isTopRank && (
@@ -241,7 +247,7 @@ export default function PlayerStatsTable({ stats, loading }: PlayerStatsTablePro
                     <p className={`text-xs font-bold truncate ${
                       isTopRank ? 'text-gray-900' : 'text-gray-600'
                     }`}>
-                      {player.playerName}
+                      {displayName}
                     </p>
                   </div>
                 </td>

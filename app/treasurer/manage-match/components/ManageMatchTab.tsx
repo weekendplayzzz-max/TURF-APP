@@ -219,6 +219,7 @@ export default function ManageMatchTab({
       oldResult: selectedMatch.result ?? null,
       newTeams:  cleanTeams,
       newResult,
+      isNewResult: !selectedMatch.result,
     });
 
     // ── 3. Refresh local state

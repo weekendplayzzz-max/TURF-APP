@@ -2,6 +2,11 @@ import { db } from '@/lib/firebase';
 import {
   doc, getDoc, setDoc, Timestamp,
 } from 'firebase/firestore';
+import {
+  applySeasonStatDelta,
+  checkAndMaybeEndSeason,
+  getOrCreateActiveSeason,
+} from '@/lib/seasonManager';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,11 +70,11 @@ function buildDeltas(
       map.set(player.playerId, {
         name: player.playerName,
         delta: {
-          matchesPlayed: 1        * multiplier,
+          matchesPlayed: 1               * multiplier,
           matchesWon:    (isWin  ? 1 : 0) * multiplier,
           matchesDrawn:  (isDraw ? 1 : 0) * multiplier,
           matchesLost:   (isLoss ? 1 : 0) * multiplier,
-          goalsScored:   goals   * multiplier,
+          goalsScored:   goals            * multiplier,
         },
       });
     });
@@ -86,23 +91,31 @@ function buildDeltas(
  * Pass:
  *  - oldTeams / oldResult  → the state BEFORE the edit (null if brand new)
  *  - newTeams / newResult  → the state AFTER the edit (null if deleted)
+ *  - isNewResult           → true ONLY when saving a result for the very first
+ *                            time. false when editing an already-saved result.
+ *                            This controls whether the season match counter
+ *                            increments — edits must never increment it again.
  *
- * The function reverses old contributions and applies new ones atomically
- * per player, so edits are always safe and accurate.
+ * The function:
+ *  1. Reverses old contributions and applies new ones to global playerStats
+ *  2. Does the same for seasonPlayerStats (current active season)
+ *  3. Calls checkAndMaybeEndSeason() only when isNewResult === true
  */
 export async function updatePlayerStats({
   oldTeams,
   oldResult,
   newTeams,
   newResult,
+  isNewResult = false,
 }: {
-  oldTeams:   Team[]       | null;
-  oldResult:  MatchResult  | null;
-  newTeams:   Team[]       | null;
-  newResult:  MatchResult  | null;
+  oldTeams:     Team[]      | null;
+  oldResult:    MatchResult | null;
+  newTeams:     Team[]      | null;
+  newResult:    MatchResult | null;
+  isNewResult?: boolean;
 }): Promise<void> {
 
-  // Collect all playerIds involved (union of old + new)
+  // ── Collect all playerIds involved (union of old + new) ────────────────────
   const allPlayerIds = new Set<string>();
 
   if (oldTeams && oldResult) {
@@ -114,7 +127,7 @@ export async function updatePlayerStats({
 
   if (allPlayerIds.size === 0) return;
 
-  // Build final net delta per player
+  // ── Build final net delta per player ───────────────────────────────────────
   const netDeltas = new Map<string, { name: string; delta: PlayerStatsDelta }>();
 
   const applyDeltas = (
@@ -137,16 +150,24 @@ export async function updatePlayerStats({
   if (oldTeams && oldResult) applyDeltas(buildDeltas(oldTeams, oldResult, -1));
   if (newTeams && newResult) applyDeltas(buildDeltas(newTeams, newResult, +1));
 
-  // Write all player stats in parallel
+  // ── Get active season once (shared across all player writes below) ─────────
+  // Only fetch if we actually have new stats to write to the season
+  const activeSeason = (newTeams && newResult) || (oldTeams && oldResult)
+    ? await getOrCreateActiveSeason()
+    : null;
+
+  // ── Write all player stats in parallel ─────────────────────────────────────
   const writes = Array.from(netDeltas.entries()).map(async ([playerId, { name, delta }]) => {
-    const ref = doc(db, 'playerStats', playerId);
+
+    // — Global playerStats (never resets) ─────────────────────────────────────
+    const ref  = doc(db, 'playerStats', playerId);
     const snap = await getDoc(ref);
 
     if (snap.exists()) {
       const current = snap.data();
       await setDoc(ref, {
         playerId,
-        playerName: name,
+        playerName:    name,
         matchesPlayed: Math.max(0, (current.matchesPlayed ?? 0) + delta.matchesPlayed),
         matchesWon:    Math.max(0, (current.matchesWon    ?? 0) + delta.matchesWon),
         matchesDrawn:  Math.max(0, (current.matchesDrawn  ?? 0) + delta.matchesDrawn),
@@ -158,7 +179,7 @@ export async function updatePlayerStats({
       // First time this player appears — create fresh doc
       await setDoc(ref, {
         playerId,
-        playerName: name,
+        playerName:    name,
         matchesPlayed: Math.max(0, delta.matchesPlayed),
         matchesWon:    Math.max(0, delta.matchesWon),
         matchesDrawn:  Math.max(0, delta.matchesDrawn),
@@ -167,7 +188,26 @@ export async function updatePlayerStats({
         lastUpdated:   Timestamp.now(),
       });
     }
+
+    // — Season playerStats (resets each season) ───────────────────────────────
+    // The net delta correctly handles edits too — if old result is reversed
+    // and new result applied, the delta naturally reflects only the difference.
+    if (activeSeason) {
+      await applySeasonStatDelta(
+        activeSeason.seasonId,
+        playerId,
+        name,
+        delta,
+      );
+    }
   });
 
   await Promise.all(writes);
+
+  // ── Season end check ───────────────────────────────────────────────────────
+  // Only increment the season match counter for brand-new results.
+  // Editing an already-saved result must NEVER increment the counter again.
+  if (isNewResult && newTeams && newResult) {
+    await checkAndMaybeEndSeason();
+  }
 }

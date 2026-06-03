@@ -258,6 +258,7 @@ export default function NewMatchTab({ userId, onMatchCreated, showToast }: NewMa
       oldResult: null,
       newTeams:  teams,
       newResult,
+      isNewResult: true,
     });
 
     // ── 3. Show success
