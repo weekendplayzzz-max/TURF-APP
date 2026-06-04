@@ -755,7 +755,7 @@ export default function MyStatsPage() {
       }
     };
 
-    if (!loading && user && role === 'player') {
+    if (!loading && user && role === 'secretary') {
       fetchMyStats();
     }
   }, [user, role, loading]);
