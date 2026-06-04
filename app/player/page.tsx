@@ -105,6 +105,42 @@ export default function PlayerDashboard() {
       ),
     },
     {
+  label: 'My Stats',
+  sub: 'View ratings & performance',
+  path: '/player/my-stats',
+  icon: (
+    <>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M5 19h14"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M7 16V11"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M12 16V7"
+      />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={2}
+        d="M17 16V9"
+      />
+      <circle cx="7" cy="9" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="17" cy="7" r="1.5" fill="currentColor" stroke="none" />
+    </>
+  ),
+},
+    {
       label: 'My Profile',
       sub: 'View your profile',
       path: '/player/profile',
