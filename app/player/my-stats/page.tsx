@@ -201,6 +201,67 @@ function getPlayerInsight(player: EnrichedPlayerCard) {
   return 'Steady development across recent matches.';
 }
 
+function getTeamScore(result: MatchResult, teamId: string) {
+  return Number(result.scores?.[teamId] ?? 0);
+}
+
+function hasGoalScoringStreak(previousGoalMatches: boolean[], currentGoals: number) {
+  if (currentGoals <= 0) return false;
+  if (previousGoalMatches.length === 0) return false;
+  return previousGoalMatches[previousGoalMatches.length - 1] === true;
+}
+
+function getCurrentMonthMatchesPlayedBefore(
+  previousPlayedDates: Date[],
+  currentDate: Date | null
+) {
+  if (!currentDate) return 0;
+
+  const month = currentDate.getMonth();
+  const year = currentDate.getFullYear();
+
+  return previousPlayedDates.filter(
+    (date) => date.getMonth() === month && date.getFullYear() === year
+  ).length;
+}
+
+function getPreviousFiveWinRate(previousResults: Array<'Win' | 'Draw' | 'Loss'>) {
+  if (previousResults.length === 0) return 0;
+  const lastFive = previousResults.slice(-5);
+  const wins = lastFive.filter((result) => result === 'Win').length;
+  return (wins / lastFive.length) * 100;
+}
+
+function getAttackerPositiveGoalBonus(goals: number) {
+  let bonus = 0;
+  for (let i = 1; i <= goals; i += 1) {
+    if (i === 1) bonus += 0.6;
+    else if (i === 2) bonus += 0.8;
+    else bonus += 1;
+  }
+  return bonus;
+}
+
+function getAttackerLossGoalBonus(goals: number) {
+  let bonus = 0;
+  for (let i = 1; i <= goals; i += 1) {
+    if (i === 1) bonus += 0.6;
+    else if (i === 2) bonus += 0.9;
+    else if (i === 3) bonus += 1.3;
+    else bonus += 1.8;
+  }
+  return bonus;
+}
+
+function getDefenderGoalBonus(goals: number) {
+  if (goals <= 0) return 0;
+  let bonus = 1.0;
+  if (goals >= 2) {
+    bonus += (goals - 1) * 0.6;
+  }
+  return bonus;
+}
+
 function calculateMatchRatingsForPlayer(
   playerId: string,
   position: Position | undefined,
@@ -214,8 +275,10 @@ function calculateMatchRatingsForPlayer(
       return aTime - bTime;
     });
 
-  let consecutiveWinStreak = 0;
   const ratings: MatchRatingEntry[] = [];
+  const previousResults: Array<'Win' | 'Draw' | 'Loss'> = [];
+  const previousPlayedDates: Date[] = [];
+  const previousGoalMatches: boolean[] = [];
 
   for (const match of sortedMatches) {
     const result = match.result;
@@ -227,54 +290,97 @@ function calculateMatchRatingsForPlayer(
 
     if (!team) continue;
 
+    const currentDate = match.createdAt?.toDate?.() ?? null;
     const playerGoals =
       result.goalScorers
         ?.filter((g) => g.playerId === playerId)
         .reduce((sum, g) => sum + (g.goals ?? 0), 0) ?? 0;
 
-    let rating = 6;
+    const isDraw = result.winner === null;
+    const isWin = result.winner === team.teamId;
+    const isLoss = !isDraw && !isWin;
+
     let resultLabel: 'Win' | 'Draw' | 'Loss' = 'Draw';
+    if (isWin) resultLabel = 'Win';
+    if (isLoss) resultLabel = 'Loss';
+
+    let rating = 6;
     let streakBonusApplied = false;
 
-    const isDraw = result.winner === null;
+    if (isLoss) rating -= 1;
+    if (isDraw) rating += 1;
+    if (isWin) rating += 2;
 
-    if (isDraw) {
-      rating += 1;
-      resultLabel = 'Draw';
-      consecutiveWinStreak = 0;
-    } else if (result.winner === team.teamId) {
-      rating += 2;
-      resultLabel = 'Win';
+    const previousFiveWinRate = getPreviousFiveWinRate(previousResults);
+    const currentMonthMatchesBefore = getCurrentMonthMatchesPlayedBefore(
+      previousPlayedDates,
+      currentDate
+    );
 
-      if (position === 'DEF') {
-        rating += 0.4;
-      }
+    const qualifiesForRecentFormBonus =
+      currentMonthMatchesBefore >= 3 && previousResults.length > 0 && previousFiveWinRate > 50;
 
-      if (consecutiveWinStreak >= 1) {
-        rating += 0.5;
-        streakBonusApplied = true;
-      }
-
-      consecutiveWinStreak += 1;
-    } else {
-      rating -= 1;
-      resultLabel = 'Loss';
-      consecutiveWinStreak = 0;
+    if (qualifiesForRecentFormBonus) {
+      rating += 0.6;
     }
 
-    rating += playerGoals * 0.6;
-    rating = Math.max(0, Math.min(10, Number(rating.toFixed(1))));
+    const hasScoringStreak = hasGoalScoringStreak(previousGoalMatches, playerGoals);
+    if (hasScoringStreak) {
+      rating += 1;
+      streakBonusApplied = true;
+    }
+
+    const isDefensiveRole = position === 'DEF' || position === 'GK';
+    const isAttackingRole = position === 'MID' || position === 'FORWARD';
+
+    if (isDefensiveRole && isWin) {
+      rating += 1.2;
+    }
+
+    if (isDefensiveRole && playerGoals > 0) {
+      rating += getDefenderGoalBonus(playerGoals);
+    }
+
+    if (isAttackingRole && (isWin || isDraw) && playerGoals > 0) {
+      rating += getAttackerPositiveGoalBonus(playerGoals);
+    }
+
+    if (isAttackingRole && isLoss && playerGoals > 0) {
+      rating += getAttackerLossGoalBonus(playerGoals);
+
+      if (playerGoals >= 3) {
+        rating = Math.max(rating, 8.5);
+      } else if (playerGoals === 2) {
+        rating = Math.max(rating, 7.85);
+      }
+    }
+
+    if (position === 'GK') {
+      const opponent = match.teams.find((t) => t.teamId !== team.teamId);
+      const opponentScore = opponent ? getTeamScore(result, opponent.teamId) : 0;
+      const hasCleanSheet = opponentScore === 0;
+
+      if (hasCleanSheet) {
+        rating += 2;
+      }
+    }
+
+    rating = Math.max(0, Math.min(10, Number(rating.toFixed(2))));
 
     ratings.push({
       matchId: match.id,
       eventTitle: match.eventTitle,
       matchNumber: match.matchNumber,
-      date: match.createdAt?.toDate?.() ?? null,
+      date: currentDate,
       resultLabel,
       goals: playerGoals,
       rating,
       streakBonusApplied,
     });
+
+    previousResults.push(resultLabel);
+    if (currentDate) previousPlayedDates.push(currentDate);
+    previousGoalMatches.push(playerGoals > 0);
   }
 
   return ratings.reverse();
@@ -813,27 +919,27 @@ export default function MyStatsPage() {
                   subtitle="Only the top-level numbers that matter most."
                 >
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-  <StatCard
-    label="Avg Rating"
-    value={myProfile.avgMatchRating ? myProfile.avgMatchRating.toFixed(2) : '—'}
-    caption="Average match rating"
-  />
-  <StatCard
-    label="Win Rate"
-    value={`${getWinRate(myProfile).toFixed(1)}%`}
-    caption="Matches won"
-  />
-  <StatCard
-    label="GPG Ratio"
-    value={getGoalRatio(myProfile).toFixed(2)}
-    caption="Goals per game"
-  />
-  <StatCard
-    label="Goals Scored"
-    value={String(myProfile.goalsScored)}
-    caption="Total goals"
-  />
-</div>
+                    <StatCard
+                      label="Avg Rating"
+                      value={myProfile.avgMatchRating ? myProfile.avgMatchRating.toFixed(2) : '—'}
+                      caption="Average match rating"
+                    />
+                    <StatCard
+                      label="Win Rate"
+                      value={`${getWinRate(myProfile).toFixed(1)}%`}
+                      caption="Matches won"
+                    />
+                    <StatCard
+                      label="GPG Ratio"
+                      value={getGoalRatio(myProfile).toFixed(2)}
+                      caption="Goals per game"
+                    />
+                    <StatCard
+                      label="Goals Scored"
+                      value={String(myProfile.goalsScored)}
+                      caption="Total goals"
+                    />
+                  </div>
                 </SectionCard>
               </div>
             )}
@@ -890,7 +996,7 @@ export default function MyStatsPage() {
                           Results Profile
                         </p>
                         <p className="mt-1 text-sm font-semibold text-gray-600">
-                            {overallWinRate} win rate
+                          {overallWinRate} win rate
                         </p>
                       </div>
                       <p className="text-xs font-bold text-gray-400">
