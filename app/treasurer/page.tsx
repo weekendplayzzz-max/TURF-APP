@@ -199,7 +199,7 @@ export default function TreasurerDashboard() {
     {
   label: 'My Stats',
   sub: 'View ratings & performance',
-  path: '/player/my-stats',
+  path: '/treasurer/my-stats',
   icon: (
     <>
       <path
