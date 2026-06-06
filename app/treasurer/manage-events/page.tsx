@@ -277,99 +277,100 @@ const [removingPlayers, setRemovingPlayers] = useState(false)
 
 
   const openEditModal = (event: Event) => {
-    if (event.status === 'locked') {
-      setMessage('Cannot edit locked events');
-      setTimeout(() => setMessage(''), 3000);
-      return;
+  setSelectedEvent(event);
+  setEditForm({
+    title: event.title,
+    totalAmount: event.totalAmount.toString(),
+    durationHours: event.durationHours.toString(),
+  });
+  setShowEditModal(true);
+};
+
+const handleEdit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (!selectedEvent || !user) return;
+
+  try {
+    const eventDoc = doc(db, 'events', selectedEvent.id);
+    const updates: any = {
+      lastEditedAt: Timestamp.now(),
+    };
+
+    const editHistory: EventEditHistory[] = [];
+    const newTotalAmount = parseFloat(editForm.totalAmount);
+    const newDurationHours = parseFloat(editForm.durationHours);
+    const isSettledEvent =
+      selectedEvent.status === 'closed' || selectedEvent.status === 'locked';
+
+    if (editForm.title !== selectedEvent.title) {
+      updates.title = editForm.title;
+      editHistory.push({
+        action: 'title_updated',
+        oldValue: selectedEvent.title,
+        newValue: editForm.title,
+        editedBy: user.uid,
+        editedByRole: 'treasurer',
+        editedAt: Timestamp.now(),
+        recalculationTriggered: false,
+      });
     }
 
-    setSelectedEvent(event);
-    setEditForm({
-      title: event.title,
-      totalAmount: event.totalAmount.toString(),
-      durationHours: event.durationHours.toString(),
-    });
-    setShowEditModal(true);
-  };
-
-
-  const handleEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!selectedEvent || !user) return;
-
-    try {
-      const eventDoc = doc(db, 'events', selectedEvent.id);
-      const updates: any = {
-        lastEditedAt: Timestamp.now(),
-      };
-
-      const editHistory: EventEditHistory[] = [];
-
-      if (editForm.title !== selectedEvent.title) {
-        updates.title = editForm.title;
-        editHistory.push({
-          action: 'title_updated',
-          oldValue: selectedEvent.title,
-          newValue: editForm.title,
-          editedBy: user.uid,
-          editedByRole: 'treasurer',
-          editedAt: Timestamp.now(),
-          recalculationTriggered: false,
-        });
-      }
-
-      if (parseFloat(editForm.totalAmount) !== selectedEvent.totalAmount) {
-        updates.totalAmount = parseFloat(editForm.totalAmount);
-        editHistory.push({
-          action: 'amount_updated',
-          oldValue: selectedEvent.totalAmount,
-          newValue: parseFloat(editForm.totalAmount),
-          editedBy: user.uid,
-          editedByRole: 'treasurer',
-          editedAt: Timestamp.now(),
-          recalculationTriggered: selectedEvent.status === 'closed',
-        });
-      }
-
-      if (parseFloat(editForm.durationHours) !== selectedEvent.durationHours) {
-        updates.durationHours = parseFloat(editForm.durationHours);
-        editHistory.push({
-          action: 'duration_updated',
-          oldValue: selectedEvent.durationHours,
-          newValue: parseFloat(editForm.durationHours),
-          editedBy: user.uid,
-          editedByRole: 'treasurer',
-          editedAt: Timestamp.now(),
-          recalculationTriggered: false,
-        });
-      }
-
-      if (editHistory.length > 0) {
-        const existingHistory = selectedEvent.editHistory || [];
-        await updateDoc(eventDoc, {
-          ...updates,
-          editHistory: [...existingHistory, ...editHistory],
-        });
-      } else {
-        await updateDoc(eventDoc, updates);
-      }
-
-      if (selectedEvent.status === 'closed' && parseFloat(editForm.totalAmount) !== selectedEvent.totalAmount) {
-        await recalculatePayments(selectedEvent.id, parseFloat(editForm.totalAmount), selectedEvent.participantCount);
-        await updateEventTotalCollected(selectedEvent.id);
-      }
-
-      setShowEditModal(false);
-      setSuccessMessage(`Event "${editForm.title}" updated successfully!`);
-      setShowSuccessDialog(true);
-      await fetchEvents();
-    } catch (error) {
-      console.error('Error updating event:', error);
-      setMessage('Failed to update event');
-      setTimeout(() => setMessage(''), 3000);
+    if (newTotalAmount !== selectedEvent.totalAmount) {
+      updates.totalAmount = newTotalAmount;
+      editHistory.push({
+        action: 'amount_updated',
+        oldValue: selectedEvent.totalAmount,
+        newValue: newTotalAmount,
+        editedBy: user.uid,
+        editedByRole: 'treasurer',
+        editedAt: Timestamp.now(),
+        recalculationTriggered: isSettledEvent,
+      });
     }
-  };
+
+    if (newDurationHours !== selectedEvent.durationHours) {
+      updates.durationHours = newDurationHours;
+      editHistory.push({
+        action: 'duration_updated',
+        oldValue: selectedEvent.durationHours,
+        newValue: newDurationHours,
+        editedBy: user.uid,
+        editedByRole: 'treasurer',
+        editedAt: Timestamp.now(),
+        recalculationTriggered: false,
+      });
+    }
+
+    if (editHistory.length > 0) {
+      const existingHistory = selectedEvent.editHistory || [];
+      await updateDoc(eventDoc, {
+        ...updates,
+        editHistory: [...existingHistory, ...editHistory],
+      });
+    } else {
+      await updateDoc(eventDoc, updates);
+    }
+
+    if (isSettledEvent && newTotalAmount !== selectedEvent.totalAmount) {
+      await recalculatePayments(
+        selectedEvent.id,
+        newTotalAmount,
+        selectedEvent.participantCount
+      );
+      await updateEventTotalCollected(selectedEvent.id);
+    }
+
+    setShowEditModal(false);
+    setSuccessMessage(`Event "${editForm.title}" updated successfully!`);
+    setShowSuccessDialog(true);
+    await fetchEvents();
+  } catch (error) {
+    console.error('Error updating event:', error);
+    setMessage('Failed to update event');
+    setTimeout(() => setMessage(''), 3000);
+  }
+};
 
 
   const viewParticipants = (eventId: string) => {
@@ -1204,11 +1205,11 @@ const confirmRemovePlayers = async () => {
                   step="10"
                   required
                 />
-                {selectedEvent.status === 'closed' && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Changing this will recalculate all payments and update totalCollected
-                  </p>
-                )}
+                {(selectedEvent.status === 'closed' || selectedEvent.status === 'locked') && (
+  <p className="text-xs text-gray-500 mt-1">
+    Changing this will recalculate all payments and update totalCollected
+  </p>
+)}
               </div>
 
               <div>
