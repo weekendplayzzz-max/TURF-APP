@@ -81,6 +81,7 @@ export interface MatchRatingEntry {
   rating: number;
   streakBonusApplied: boolean;
   winStreakBonusApplied: boolean;
+  topScorerBonusApplied: boolean;
 }
 
 export interface EnrichedPlayerCard extends PlayerStatCard {
@@ -117,6 +118,53 @@ export function getStatValue(
   return safeNumber(source?.[key], fallback);
 }
 
+function toDateSafe(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'toDate' in value &&
+    typeof (value as { toDate?: () => Date }).toDate === 'function'
+  ) {
+    try {
+      return (value as { toDate: () => Date }).toDate();
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function getCreatedAtTime(match: MatchDetail) {
+  return toDateSafe(match.createdAt)?.getTime() ?? 0;
+}
+
+function getSafeTeams(match: MatchDetail) {
+  return Array.isArray(match.teams) ? match.teams : [];
+}
+
+function getSafeGoalScorers(result: MatchResult | null | undefined) {
+  return Array.isArray(result?.goalScorers) ? result.goalScorers : [];
+}
+
+function getPlayerTeam(match: MatchDetail, playerId: string) {
+  return getSafeTeams(match).find((team) =>
+    (team.players ?? []).some((player) => player.playerId === playerId)
+  );
+}
+
+function getPlayedMatchesForPlayer(playerId: string, matches: MatchDetail[]) {
+  return matches.filter((match) => {
+    if (!match.result) return false;
+    return getSafeTeams(match).some((team) =>
+      (team.players ?? []).some((player) => player.playerId === playerId)
+    );
+  });
+}
+
 export function getWinRate(player: Pick<PlayerStat, 'matchesPlayed' | 'matchesWon'>) {
   if (!player.matchesPlayed) return 0;
   return (player.matchesWon / player.matchesPlayed) * 100;
@@ -145,7 +193,7 @@ export function getDrawRate(player: Pick<PlayerStat, 'matchesPlayed' | 'matchesD
 }
 
 export function getPointsFromGoals(goals: number) {
-  return Number((goals * 0.6).toFixed(1));
+  return Number((safeNumber(goals) * 0.6).toFixed(1));
 }
 
 export function getPointsFromResults(
@@ -155,7 +203,7 @@ export function getPointsFromResults(
 }
 
 export function getTeamScore(result: MatchResult, teamId: string) {
-  return Number(result.scores?.[teamId] ?? 0);
+  return Number(result?.scores?.[teamId] ?? 0);
 }
 
 export function hasGoalScoringStreak(previousGoalMatches: boolean[], currentGoals: number) {
@@ -194,7 +242,6 @@ export function getAttackerLossGoalBonus(goals: number) {
   for (let i = 1; i <= goals; i += 1) {
     if (i === 1) bonus += 0.5;
     else if (i === 2) bonus += 0.8;
-    else if (i === 3) bonus += 1.5;
     else bonus += 1.5;
   }
   return bonus;
@@ -227,7 +274,7 @@ export function getInitials(name: string) {
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
+    .map((part) => part[0]?.toUpperCase() ?? '')
     .join('');
 }
 
@@ -273,13 +320,14 @@ function getConsistencyScore(matchRatings: MatchRatingEntry[]) {
 
 function getExperienceFactor(matchesPlayed: number) {
   if (matchesPlayed <= 0) return 0;
-
-  if (matchesPlayed <= 3) return 0.18;
-  if (matchesPlayed <= 5) return 0.28;
-  if (matchesPlayed <= 8) return 0.4;
-  if (matchesPlayed <= 12) return 0.52;
-  if (matchesPlayed <= 18) return 0.66;
-  if (matchesPlayed <= 25) return 0.78;
+  if (matchesPlayed === 1) return 0.12;
+  if (matchesPlayed === 2) return 0.17;
+  if (matchesPlayed === 3) return 0.23;
+  if (matchesPlayed <= 5) return 0.32;
+  if (matchesPlayed <= 8) return 0.44;
+  if (matchesPlayed <= 12) return 0.56;
+  if (matchesPlayed <= 18) return 0.68;
+  if (matchesPlayed <= 25) return 0.79;
   if (matchesPlayed <= 35) return 0.88;
   if (matchesPlayed <= 50) return 0.95;
   return 1;
@@ -287,15 +335,16 @@ function getExperienceFactor(matchesPlayed: number) {
 
 function getExperienceCap(matchesPlayed: number) {
   if (matchesPlayed <= 0) return 40;
-  if (matchesPlayed === 1) return 48;
-  if (matchesPlayed <= 3) return 54;
+  if (matchesPlayed === 1) return 46;
+  if (matchesPlayed === 2) return 49;
+  if (matchesPlayed === 3) return 53;
   if (matchesPlayed <= 5) return 58;
-  if (matchesPlayed <= 8) return 63;
-  if (matchesPlayed <= 12) return 68;
-  if (matchesPlayed <= 18) return 74;
-  if (matchesPlayed <= 25) return 79;
-  if (matchesPlayed <= 35) return 84;
-  if (matchesPlayed <= 50) return 89;
+  if (matchesPlayed <= 8) return 64;
+  if (matchesPlayed <= 12) return 70;
+  if (matchesPlayed <= 18) return 76;
+  if (matchesPlayed <= 25) return 82;
+  if (matchesPlayed <= 35) return 87;
+  if (matchesPlayed <= 50) return 91;
   return 94;
 }
 
@@ -303,19 +352,19 @@ function getGoalContributionScore(player: PlayerStatCard) {
   const goalRatio = getGoalRatio(player);
 
   if (player.position === 'FORWARD') {
-    return normalize(Math.min(goalRatio, 2.2), 0, 1.6);
+    return normalize(Math.min(goalRatio, 2.2), 0, 1.4);
   }
 
   if (player.position === 'MID') {
-    return normalize(Math.min(goalRatio, 1.6), 0, 1.1);
+    return normalize(Math.min(goalRatio, 1.6), 0, 0.95);
   }
 
   if (player.position === 'DEF') {
-    return normalize(Math.min(goalRatio, 0.7), 0, 0.45);
+    return normalize(Math.min(goalRatio, 0.75), 0, 0.35);
   }
 
   if (player.position === 'GK') {
-    return normalize(Math.min(goalRatio, 0.35), 0, 0.2);
+    return normalize(Math.min(goalRatio, 0.35), 0, 0.12);
   }
 
   return normalize(Math.min(goalRatio, 1.5), 0, 1);
@@ -328,9 +377,9 @@ function getResultImpactScore(player: PlayerStatCard) {
 
   if (player.position === 'GK') {
     return clamp(
-      normalize(winRate, 35, 80) * 0.4 +
-        normalize(unbeatenRate, 45, 90) * 0.5 +
-        normalize(drawRate, 0, 35) * 0.1,
+      normalize(winRate, 35, 80) * 0.3 +
+        normalize(unbeatenRate, 45, 90) * 0.55 +
+        normalize(drawRate, 0, 35) * 0.15,
       0,
       1
     );
@@ -338,9 +387,9 @@ function getResultImpactScore(player: PlayerStatCard) {
 
   if (player.position === 'DEF') {
     return clamp(
-      normalize(winRate, 35, 80) * 0.45 +
-        normalize(unbeatenRate, 45, 88) * 0.45 +
-        normalize(drawRate, 0, 35) * 0.1,
+      normalize(winRate, 35, 80) * 0.32 +
+        normalize(unbeatenRate, 45, 88) * 0.52 +
+        normalize(drawRate, 0, 35) * 0.16,
       0,
       1
     );
@@ -348,18 +397,18 @@ function getResultImpactScore(player: PlayerStatCard) {
 
   if (player.position === 'MID') {
     return clamp(
-      normalize(winRate, 30, 78) * 0.5 +
-        normalize(unbeatenRate, 40, 86) * 0.35 +
-        normalize(drawRate, 0, 35) * 0.15,
+      normalize(winRate, 30, 78) * 0.42 +
+        normalize(unbeatenRate, 40, 86) * 0.34 +
+        normalize(drawRate, 0, 35) * 0.24,
       0,
       1
     );
   }
 
   return clamp(
-    normalize(winRate, 30, 75) * 0.58 +
-      normalize(unbeatenRate, 38, 82) * 0.27 +
-      normalize(drawRate, 0, 35) * 0.15,
+    normalize(winRate, 30, 75) * 0.46 +
+      normalize(unbeatenRate, 38, 82) * 0.26 +
+      normalize(drawRate, 0, 35) * 0.1,
     0,
     1
   );
@@ -369,10 +418,213 @@ function getRatingCoreScore(avgRating: number) {
   return normalize(avgRating, 5.8, 8.9);
 }
 
+function getPlayerGoalsInMatch(match: MatchDetail, playerId: string) {
+  const result = match.result;
+  if (!result) return 0;
+
+  return getSafeGoalScorers(result)
+    .filter((goal) => goal.playerId === playerId)
+    .reduce((sum, goal) => sum + safeNumber(goal.goals), 0);
+}
+
+function getTopScorerIdsFromTotals(goalTotals: Map<string, number>) {
+  let topGoals = 0;
+
+  goalTotals.forEach((goals) => {
+    if (goals > topGoals) topGoals = goals;
+  });
+
+  if (topGoals <= 0) return new Set<string>();
+
+  const leaders = new Set<string>();
+  goalTotals.forEach((goals, playerId) => {
+    if (goals === topGoals) leaders.add(playerId);
+  });
+
+  return leaders;
+}
+
+function getTopScorerLeadershipScore(player: PlayerStatCard, allPlayers: PlayerStatCard[]) {
+  if (!player.matchesPlayed || allPlayers.length === 0) return 0;
+
+  const highestGoals = Math.max(...allPlayers.map((item) => item.goalsScored), 0);
+  if (highestGoals <= 0) return 0;
+
+  const isTopScorer = player.goalsScored === highestGoals;
+  const gapRatio = player.goalsScored / highestGoals;
+  const goalRatio = getGoalRatio(player);
+
+  if (player.position === 'FORWARD') {
+    return clamp(
+      (isTopScorer ? 0.45 : 0) +
+        normalize(gapRatio, 0.45, 1) * 0.3 +
+        normalize(goalRatio, 0.25, 1.2) * 0.18,
+      0,
+      1
+    );
+  }
+
+  if (player.position === 'MID') {
+    return clamp(
+      (isTopScorer ? 0.34 : 0) +
+        normalize(gapRatio, 0.4, 1) * 0.28 +
+        normalize(goalRatio, 0.15, 0.85) * 0.2,
+      0,
+      1
+    );
+  }
+
+  if (player.position === 'DEF') {
+    return clamp(
+      (isTopScorer ? 0.12 : 0) +
+        normalize(gapRatio, 0.35, 1) * 0.18 +
+        normalize(goalRatio, 0.05, 0.35) * 0.14,
+      0,
+      1
+    );
+  }
+
+  if (player.position === 'GK') {
+    return clamp(
+      (isTopScorer ? 0.06 : 0) +
+        normalize(gapRatio, 0.3, 1) * 0.12 +
+        normalize(goalRatio, 0.02, 0.15) * 0.08,
+      0,
+      1
+    );
+  }
+
+  return clamp(
+    (isTopScorer ? 0.3 : 0) +
+      normalize(gapRatio, 0.4, 1) * 0.25 +
+      normalize(goalRatio, 0.15, 1) * 0.18,
+    0,
+    1
+  );
+}
+
+function getCleanSheetRateForPlayer(
+  playerId: string,
+  position: Position | undefined,
+  matches: MatchDetail[]
+) {
+  if (position !== 'GK' && position !== 'DEF') return 0;
+
+  const playedMatches = getPlayedMatchesForPlayer(playerId, matches);
+
+  if (playedMatches.length === 0) return 0;
+
+  let cleanSheets = 0;
+
+  playedMatches.forEach((match) => {
+    const result = match.result;
+    if (!result) return;
+
+    const playerTeam = getPlayerTeam(match, playerId);
+    if (!playerTeam) return;
+
+    const opponents = getSafeTeams(match).filter((team) => team.teamId !== playerTeam.teamId);
+    const opponentGoals = opponents.reduce(
+      (sum, team) => sum + getTeamScore(result, team.teamId),
+      0
+    );
+
+    if (opponentGoals === 0) cleanSheets += 1;
+  });
+
+  return (cleanSheets / playedMatches.length) * 100;
+}
+
+function getDefensiveAnchorScore(player: PlayerStatCard, matches: MatchDetail[]) {
+  if (player.position !== 'GK' && player.position !== 'DEF') return 0;
+
+  const cleanSheetRate = getCleanSheetRateForPlayer(
+    player.playerId,
+    player.position,
+    matches
+  );
+  const unbeatenRate = getUnbeatenRate(player);
+  const lossRate = getLossRate(player);
+  const winRate = getWinRate(player);
+
+  if (player.position === 'GK') {
+    return clamp(
+      normalize(cleanSheetRate, 10, 55) * 0.5 +
+        normalize(unbeatenRate, 40, 88) * 0.24 +
+        normalize(winRate, 30, 78) * 0.1 +
+        (1 - normalize(lossRate, 15, 60)) * 0.16,
+      0,
+      1
+    );
+  }
+
+  return clamp(
+    normalize(cleanSheetRate, 8, 50) * 0.42 +
+      normalize(unbeatenRate, 40, 86) * 0.26 +
+      normalize(winRate, 30, 76) * 0.12 +
+      (1 - normalize(lossRate, 18, 62)) * 0.2,
+    0,
+    1
+  );
+}
+
+function getSmallSamplePenalty(player: PlayerStatCard, avgRating: number) {
+  const matchesPlayed = player.matchesPlayed;
+  const goalRatio = getGoalRatio(player);
+
+  let penalty = 0;
+
+  if (matchesPlayed < 10) {
+    penalty += (10 - matchesPlayed) * 0.55;
+  }
+
+  if (matchesPlayed < 6 && avgRating >= 8.5) {
+    penalty += 2.2;
+  }
+
+  if (
+    matchesPlayed < 6 &&
+    (player.position === 'FORWARD' || player.position === 'MID') &&
+    goalRatio >= 1.5
+  ) {
+    penalty += 1.8;
+  }
+
+  return penalty;
+}
+
+function getRoleBonus(
+  player: PlayerStatCard,
+  topScorerImpact: number,
+  defensiveAnchor: number
+) {
+  let bonus = 0;
+
+  if (
+    (player.position === 'FORWARD' || player.position === 'MID') &&
+    player.matchesPlayed >= 5 &&
+    topScorerImpact >= 0.72
+  ) {
+    bonus += 1.5;
+  }
+
+  if (
+    (player.position === 'GK' || player.position === 'DEF') &&
+    player.matchesPlayed >= 5 &&
+    defensiveAnchor >= 0.72
+  ) {
+    bonus += 1.5;
+  }
+
+  return bonus;
+}
+
 export function getOVR(
   avgRating: number,
   matchRatings: MatchRatingEntry[],
-  player: PlayerStatCard
+  player: PlayerStatCard,
+  allPlayers: PlayerStatCard[] = [],
+  matches: MatchDetail[] = []
 ) {
   if (!player.matchesPlayed) return 0;
 
@@ -387,45 +639,53 @@ export function getOVR(
   const consistency = getConsistencyScore(matchRatings);
   const resultImpact = getResultImpactScore(player);
   const goalImpact = getGoalContributionScore(player);
+  const topScorerImpact = getTopScorerLeadershipScore(player, allPlayers);
+  const defensiveAnchor = getDefensiveAnchorScore(player, matches);
 
   let blendedPerformance = 0;
 
   switch (player.position) {
     case 'GK':
       blendedPerformance =
-        ratingCore * 0.27 +
-        recentForm * 0.16 +
-        consistency * 0.17 +
-        resultImpact * 0.34 +
-        goalImpact * 0.06;
+        ratingCore * 0.24 +
+        recentForm * 0.12 +
+        consistency * 0.15 +
+        resultImpact * 0.22 +
+        defensiveAnchor * 0.24 +
+        topScorerImpact * 0.01 +
+        goalImpact * 0.02;
       break;
 
     case 'DEF':
       blendedPerformance =
-        ratingCore * 0.25 +
-        recentForm * 0.14 +
-        consistency * 0.18 +
-        resultImpact * 0.36 +
-        goalImpact * 0.07;
+        ratingCore * 0.24 +
+        recentForm * 0.12 +
+        consistency * 0.15 +
+        resultImpact * 0.21 +
+        defensiveAnchor * 0.21 +
+        topScorerImpact * 0.02 +
+        goalImpact * 0.05;
       break;
 
     case 'MID':
       blendedPerformance =
-        ratingCore * 0.27 +
-        recentForm * 0.18 +
-        consistency * 0.16 +
-        resultImpact * 0.24 +
-        goalImpact * 0.15;
+        ratingCore * 0.25 +
+        recentForm * 0.17 +
+        consistency * 0.14 +
+        resultImpact * 0.18 +
+        goalImpact * 0.16 +
+        topScorerImpact * 0.1;
       break;
 
     case 'FORWARD':
     default:
       blendedPerformance =
-        ratingCore * 0.26 +
-        recentForm * 0.19 +
-        consistency * 0.14 +
-        resultImpact * 0.18 +
-        goalImpact * 0.23;
+        ratingCore * 0.23 +
+        recentForm * 0.18 +
+        consistency * 0.12 +
+        resultImpact * 0.14 +
+        goalImpact * 0.23 +
+        topScorerImpact * 0.1;
       break;
   }
 
@@ -433,18 +693,8 @@ export function getOVR(
   const experienceAdjustedGrowth = rawGrowth * experienceFactor;
 
   let ovr = BASE_OVR + experienceAdjustedGrowth;
-
-  if (matchesPlayed < 10) {
-    ovr -= (10 - matchesPlayed) * 0.45;
-  }
-
-  if (matchesPlayed < 6 && avgRating >= 8.5) {
-    ovr -= 2.5;
-  }
-
-  if (matchesPlayed < 6 && getGoalRatio(player) >= 1.5) {
-    ovr -= 2;
-  }
+  ovr -= getSmallSamplePenalty(player, avgRating);
+  ovr += getRoleBonus(player, topScorerImpact, defensiveAnchor);
 
   ovr = Math.min(ovr, experienceCap);
   ovr = clamp(Math.round(ovr), 40, 99);
@@ -504,32 +754,38 @@ export function calculateMatchRatingsForPlayer(
 ): MatchRatingEntry[] {
   const sortedMatches = [...matches]
     .filter((match) => match.result && match.result.savedAt)
-    .sort((a, b) => {
-      const aTime = a.createdAt?.toDate?.()?.getTime?.() ?? 0;
-      const bTime = b.createdAt?.toDate?.()?.getTime?.() ?? 0;
-      return aTime - bTime;
-    });
+    .sort((a, b) => getCreatedAtTime(a) - getCreatedAtTime(b));
 
   const ratings: MatchRatingEntry[] = [];
   const previousResults: Array<'Win' | 'Draw' | 'Loss'> = [];
   const previousGoalMatches: boolean[] = [];
+  const cumulativeGoalTotals = new Map<string, number>();
 
   for (const match of sortedMatches) {
     const result = match.result;
     if (!result) continue;
 
-    const team = match.teams.find((teamItem) =>
-      teamItem.players.some((player) => player.playerId === playerId)
-    );
+    const teams = getSafeTeams(match);
+    const team = getPlayerTeam(match, playerId);
+    const topScorerIdsBeforeMatch = getTopScorerIdsFromTotals(cumulativeGoalTotals);
 
-    if (!team) continue;
+    if (!team) {
+      teams.forEach((teamItem) => {
+        (teamItem.players ?? []).forEach((teamPlayer) => {
+          const goalsInMatch = getPlayerGoalsInMatch(match, teamPlayer.playerId);
+          if (goalsInMatch > 0) {
+            cumulativeGoalTotals.set(
+              teamPlayer.playerId,
+              (cumulativeGoalTotals.get(teamPlayer.playerId) ?? 0) + goalsInMatch
+            );
+          }
+        });
+      });
+      continue;
+    }
 
-    const currentDate = match.createdAt?.toDate?.() ?? null;
-
-    const playerGoals =
-      result.goalScorers
-        ?.filter((goal) => goal.playerId === playerId)
-        .reduce((sum, goal) => sum + (goal.goals ?? 0), 0) ?? 0;
+    const currentDate = toDateSafe(match.createdAt);
+    const playerGoals = getPlayerGoalsInMatch(match, playerId);
 
     const isDraw = result.winner === null || result.winner === 'draw';
     const isWin = result.winner === team.teamId;
@@ -542,6 +798,7 @@ export function calculateMatchRatingsForPlayer(
     let rating = 6;
     let streakBonusApplied = false;
     let winStreakBonusApplied = false;
+    let topScorerBonusApplied = false;
 
     if (isWin) rating += 2;
     if (isDraw) rating += 1;
@@ -552,6 +809,11 @@ export function calculateMatchRatingsForPlayer(
 
     const hasScoringStreak = hasGoalScoringStreak(previousGoalMatches, playerGoals);
     const hadPreviousTwoWinStreak = hasPreviousWinStreak(previousResults, 2);
+
+    if (topScorerIdsBeforeMatch.has(playerId) && playerGoals > 0) {
+      rating += 0.8;
+      topScorerBonusApplied = true;
+    }
 
     if (isAttackingRole) {
       if (isWin || isDraw) {
@@ -618,7 +880,7 @@ export function calculateMatchRatingsForPlayer(
     }
 
     if (position === 'GK') {
-      const opponent = match.teams.find((teamItem) => teamItem.teamId !== team.teamId);
+      const opponent = teams.find((teamItem) => teamItem.teamId !== team.teamId);
       const opponentScore = opponent ? getTeamScore(result, opponent.teamId) : 0;
       const hasCleanSheet = opponentScore === 0;
 
@@ -627,7 +889,7 @@ export function calculateMatchRatingsForPlayer(
       }
     }
 
-    rating = Math.max(0, Math.min(10, Number(rating.toFixed(2))));
+    rating = clamp(Number(rating.toFixed(2)), 0, 10);
 
     ratings.push({
       matchId: match.id,
@@ -639,10 +901,23 @@ export function calculateMatchRatingsForPlayer(
       rating,
       streakBonusApplied,
       winStreakBonusApplied,
+      topScorerBonusApplied,
     });
 
     previousResults.push(resultLabel);
     previousGoalMatches.push(playerGoals > 0);
+
+    teams.forEach((teamItem) => {
+      (teamItem.players ?? []).forEach((teamPlayer) => {
+        const goalsInMatch = getPlayerGoalsInMatch(match, teamPlayer.playerId);
+        if (goalsInMatch > 0) {
+          cumulativeGoalTotals.set(
+            teamPlayer.playerId,
+            (cumulativeGoalTotals.get(teamPlayer.playerId) ?? 0) + goalsInMatch
+          );
+        }
+      });
+    });
   }
 
   return ratings.reverse();
@@ -652,8 +927,7 @@ export function getAverageMatchRating(matchRatings: MatchRatingEntry[]) {
   if (matchRatings.length === 0) return 0;
   return Number(
     (
-      matchRatings.reduce((sum, entry) => sum + entry.rating, 0) /
-      matchRatings.length
+      matchRatings.reduce((sum, entry) => sum + entry.rating, 0) / matchRatings.length
     ).toFixed(2)
   );
 }
@@ -675,7 +949,7 @@ export function enrichPlayerStats(
 
     const avgMatchRating = getAverageMatchRating(matchRatings);
     const latestMatchRating = getLatestMatchRating(matchRatings);
-    const ovr = getOVR(avgMatchRating, matchRatings, player);
+    const ovr = getOVR(avgMatchRating, matchRatings, player, players, matches);
 
     const enriched: EnrichedPlayerCard = {
       ...player,

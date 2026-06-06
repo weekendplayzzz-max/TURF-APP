@@ -25,9 +25,11 @@ import {
 function AnimatedNumber({
   value,
   decimals = 0,
+  suffix = '',
 }: {
   value: number;
   decimals?: number;
+  suffix?: string;
 }) {
   const [display, setDisplay] = useState(0);
   const frameRef = useRef<number>(0);
@@ -39,7 +41,7 @@ function AnimatedNumber({
     const animate = (ts: number) => {
       if (!startRef.current) startRef.current = ts;
       const elapsed = ts - startRef.current;
-      const progress = Math.min(elapsed / 800, 1);
+      const progress = Math.min(elapsed / 900, 1);
       const eased = 1 - Math.pow(1 - progress, 3);
       setDisplay(value * eased);
 
@@ -52,7 +54,12 @@ function AnimatedNumber({
     return () => cancelAnimationFrame(frameRef.current);
   }, [value]);
 
-  return <span>{display.toFixed(decimals)}</span>;
+  return (
+    <span>
+      {display.toFixed(decimals)}
+      {suffix}
+    </span>
+  );
 }
 
 function Spinner() {
@@ -117,8 +124,8 @@ function TabBar({
 
   return (
     <div className="sticky top-[72px] z-20 bg-gray-50/95 pb-3 backdrop-blur supports-[backdrop-filter]:bg-gray-50/80">
-      <div className="rounded-2xl border border-gray-200 bg-white p-1 shadow-sm">
-        <div className="grid grid-cols-4 gap-1">
+      <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white p-1 shadow-sm">
+        <div className="grid min-w-[320px] grid-cols-4 gap-1">
           {tabs.map((tab) => {
             const active = activeTab === tab.key;
 
@@ -143,53 +150,151 @@ function TabBar({
   );
 }
 
-function HeroCard({ player }: { player: EnrichedPlayerCard }) {
+function getPerformanceLabel(player: EnrichedPlayerCard) {
+  const winRate = getWinRate(player);
+  const gpg = getGoalRatio(player);
+  const unbeaten = getUnbeatenRate(player);
+
+  if (player.matchesPlayed === 0) return 'Ready to start';
+  if (winRate >= 70 && gpg >= 1) return 'Match winner';
+  if (winRate >= 60) return 'Strong form';
+  if (unbeaten >= 70) return 'Hard to beat';
+  if (gpg >= 1) return 'Goal threat';
+  if (winRate >= 45) return 'Solid contributor';
+  return 'Building momentum';
+}
+
+function getPerformanceInsight(player: EnrichedPlayerCard) {
+  const winRate = getWinRate(player);
+  const gpg = getGoalRatio(player);
+  const points = getPointsFromResults(player);
+
+  if (player.matchesPlayed === 0) {
+    return 'Your season story starts here. Once match results are saved, this page will turn into your personal performance dashboard.';
+  }
+
+  if (winRate >= 70 && gpg >= 1) {
+    return `You are delivering elite output with ${winRate.toFixed(1)}% wins and ${gpg.toFixed(2)} goals per match.`;
+  }
+
+  if (winRate >= 60) {
+    return `You are helping your side get results consistently, earning ${points} points from ${player.matchesPlayed} matches.`;
+  }
+
+  if (gpg >= 1) {
+    return `You are making a direct scoring impact with ${player.goalsScored} goals in ${player.matchesPlayed} matches.`;
+  }
+
+  if (getUnbeatenRate(player) >= 70) {
+    return `Your profile shows resilience, staying unbeaten in ${getUnbeatenRate(player).toFixed(1)}% of matches.`;
+  }
+
+  return `Every match adds to your progress. Right now you have ${player.goalsScored} goals and ${points} points contributing to your season.`;
+}
+
+function ProgressMiniBar({
+  label,
+  value,
+  colorClass,
+}: {
+  label: string;
+  value: number;
+  colorClass: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] font-bold text-gray-500">{label}</p>
+        <p className="text-[11px] font-black text-gray-700">{value}%</p>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+        <div
+          className={cn('h-full rounded-full transition-all duration-700', colorClass)}
+          style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function HeroCard({
+  player,
+  teamWinRate,
+}: {
+  player: EnrichedPlayerCard;
+  teamWinRate: string;
+}) {
+  const winRate = getWinRate(player);
+  const unbeatenRate = getUnbeatenRate(player);
+  const goalRatio = getGoalRatio(player);
+
   return (
     <section className="overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-sm">
       <div className="h-1.5 w-full bg-gradient-to-r from-red-600 via-red-500 to-orange-400" />
 
-      <div className="p-4 sm:p-6">
-        <div className="flex items-start justify-between gap-3">
+      <div className="bg-gradient-to-br from-gray-950 via-gray-900 to-red-950 p-4 text-white sm:p-6">
+        <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               {player.jerseyNumber ? (
-                <span className="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-[11px] font-black text-red-600">
+                <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-[11px] font-black text-white/90">
                   #{player.jerseyNumber}
                 </span>
               ) : null}
 
-              <span
-                className={cn(
-                  'inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold',
-                  getPositionTone(player.position)
-                )}
-              >
+              <span className="inline-flex rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] font-bold text-white/90">
                 {player.position ?? 'PLAYER'}
               </span>
 
-              <span className="inline-flex rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-bold text-gray-700">
-                {player.formLabel}
+              <span className="inline-flex rounded-full border border-red-300/20 bg-red-500/15 px-2.5 py-1 text-[11px] font-bold text-red-100">
+                {getPerformanceLabel(player)}
               </span>
             </div>
 
-            <h2 className="mt-3 text-[25px] font-black leading-[0.95] tracking-[-0.03em] text-gray-900 sm:text-[38px]">
+            <h2 className="mt-3 text-[26px] font-black leading-[0.96] tracking-[-0.03em] text-white sm:text-[40px]">
               {player.playerName}
             </h2>
 
-            <p className="mt-3 max-w-xl text-sm font-medium leading-6 text-gray-500 sm:text-[15px]">
-              {player.insight}
+            <p className="mt-3 max-w-xl text-sm font-medium leading-6 text-white/70 sm:text-[15px]">
+              {getPerformanceInsight(player)}
             </p>
           </div>
 
-          <div className="flex flex-col items-end gap-2 self-start">
-            <div className="rounded-2xl bg-gray-900 px-4 py-3 text-right text-white shadow-sm">
-              <p className="text-3xl font-black leading-none tabular-nums sm:text-[34px]">
-                {player.ovr > 0 ? <AnimatedNumber value={player.ovr} /> : '—'}
-              </p>
-              <p className="mt-1 text-[10px] font-black uppercase tracking-[0.22em] text-gray-400">
-                OVR
-              </p>
-            </div>
+          <div className="rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 text-right shadow-sm backdrop-blur">
+            <p className="text-3xl font-black leading-none tabular-nums text-white sm:text-[34px]">
+              {player.ovr > 0 ? <AnimatedNumber value={player.ovr} /> : '—'}
+            </p>
+            <p className="mt-1 text-[10px] font-black uppercase tracking-[0.22em] text-white/50">
+              OVR
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-3.5 py-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Win Rate</p>
+            <p className="mt-1 text-lg font-black text-white tabular-nums">
+              <AnimatedNumber value={winRate} decimals={1} suffix="%" />
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-3.5 py-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Goals / Match</p>
+            <p className="mt-1 text-lg font-black text-white tabular-nums">
+              <AnimatedNumber value={goalRatio} decimals={2} />
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-3.5 py-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Unbeaten</p>
+            <p className="mt-1 text-lg font-black text-white tabular-nums">
+              <AnimatedNumber value={unbeatenRate} decimals={1} suffix="%" />
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-3.5 py-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-white/45">Team Rate</p>
+            <p className="mt-1 text-lg font-black text-white tabular-nums">{teamWinRate}</p>
           </div>
         </div>
       </div>
@@ -223,18 +328,84 @@ function StatCard({
   label,
   value,
   caption,
+  accent = 'default',
 }: {
   label: string;
   value: string;
   caption: string;
+  accent?: 'default' | 'red' | 'green' | 'blue' | 'dark';
 }) {
+  const accentClass =
+    accent === 'red'
+      ? 'bg-red-50 border-red-100'
+      : accent === 'green'
+      ? 'bg-emerald-50 border-emerald-100'
+      : accent === 'blue'
+      ? 'bg-blue-50 border-blue-100'
+      : accent === 'dark'
+      ? 'bg-gray-900 border-gray-900 text-white'
+      : 'bg-gray-50/70 border-gray-100';
+
+  const labelClass = accent === 'dark' ? 'text-white/45' : 'text-gray-400';
+  const valueClass = accent === 'dark' ? 'text-white' : 'text-gray-900';
+  const captionClass = accent === 'dark' ? 'text-white/65' : 'text-gray-500';
+
   return (
-    <div className="rounded-2xl border border-gray-100 bg-gray-50/70 px-3.5 py-3.5">
-      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
+    <div className={cn('rounded-2xl border px-3.5 py-3.5', accentClass)}>
+      <p className={cn('text-[10px] font-black uppercase tracking-[0.18em]', labelClass)}>
         {label}
       </p>
-      <p className="mt-2 text-lg font-black text-gray-900 tabular-nums">{value}</p>
-      <p className="mt-1 text-[11px] font-medium text-gray-500">{caption}</p>
+      <p className={cn('mt-2 text-lg font-black tabular-nums', valueClass)}>{value}</p>
+      <p className={cn('mt-1 text-[11px] font-medium', captionClass)}>{caption}</p>
+    </div>
+  );
+}
+
+function HighlightStrip({ player }: { player: EnrichedPlayerCard }) {
+  const winRate = getWinRate(player);
+  const goalRatio = getGoalRatio(player);
+  const unbeaten = getUnbeatenRate(player);
+  const ppm = player.matchesPlayed ? getPointsFromResults(player) / player.matchesPlayed : 0;
+
+  const highlights = [
+    {
+      label: 'Best Signal',
+      value:
+        winRate >= goalRatio * 100
+          ? `${winRate.toFixed(1)}% Win Rate`
+          : `${goalRatio.toFixed(2)} Goals / Match`,
+      tone: 'red',
+    },
+    {
+      label: 'Resilience',
+      value: `${unbeaten.toFixed(1)}% Unbeaten`,
+      tone: 'blue',
+    },
+    {
+      label: 'Points / Match',
+      value: ppm.toFixed(2),
+      tone: 'green',
+    },
+  ] as const;
+
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {highlights.map((item) => (
+        <div
+          key={item.label}
+          className={cn(
+            'rounded-2xl border px-4 py-4',
+            item.tone === 'red' && 'border-red-100 bg-red-50',
+            item.tone === 'blue' && 'border-blue-100 bg-blue-50',
+            item.tone === 'green' && 'border-emerald-100 bg-emerald-50'
+          )}
+        >
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-500">
+            {item.label}
+          </p>
+          <p className="mt-2 text-base font-black text-gray-900">{item.value}</p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -251,11 +422,11 @@ function ResultBar({
   const total = wins + draws + losses;
 
   if (!total) {
-    return <div className="h-2 w-full rounded-full bg-gray-100" />;
+    return <div className="h-2.5 w-full rounded-full bg-gray-100" />;
   }
 
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+    <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
       <div className="flex h-full w-full">
         <div className="bg-emerald-500" style={{ width: `${(wins / total) * 100}%` }} />
         <div className="bg-blue-400" style={{ width: `${(draws / total) * 100}%` }} />
@@ -272,7 +443,7 @@ function MatchRatingList({
 }) {
   if (ratings.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-center">
+      <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-center">
         <p className="text-sm font-semibold text-gray-500">No match ratings yet</p>
       </div>
     );
@@ -352,13 +523,17 @@ function GuestCompactCard({ player }: { player: EnrichedPlayerCard }) {
             >
               {player.position ?? 'PLAYER'}
             </span>
+
+            <span className="inline-flex rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[10px] font-bold text-gray-700">
+              {getPerformanceLabel(player)}
+            </span>
           </div>
 
           <h3 className="mt-1 truncate text-lg font-black text-gray-900">
             {player.playerName}
           </h3>
 
-          <p className="mt-1 text-xs font-medium text-gray-500">{player.insight}</p>
+          <p className="mt-1 text-xs font-medium text-gray-500">{getPerformanceInsight(player)}</p>
         </div>
 
         <div className="rounded-2xl bg-gray-50 px-3 py-2 text-center">
@@ -382,7 +557,7 @@ function EmptyState({ message = 'No stats recorded yet' }: { message?: string })
       </div>
       <p className="mt-4 text-base font-black text-gray-700">{message}</p>
       <p className="mx-auto mt-2 max-w-xs text-sm text-gray-400">
-        The content for this section will appear once enough match data is available.
+        Once match results and ratings are added, this page will show your complete performance story.
       </p>
     </div>
   );
@@ -508,32 +683,43 @@ export default function MyStatsPage() {
           <div className="mt-4">
             {activeTab === 'overview' && myProfile && (
               <div className="space-y-4">
-                <HeroCard player={myProfile} />
+                <HeroCard player={myProfile} teamWinRate={overallWinRate} />
+
+                <SectionCard
+                  title="Highlights"
+                  subtitle="A quick read on the parts of your game that stand out most."
+                >
+                  <HighlightStrip player={myProfile} />
+                </SectionCard>
 
                 <SectionCard
                   title="Overview"
-                  subtitle="Only the top-level numbers that matter most."
+                  subtitle="Only the numbers that help players understand impact fast."
                 >
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <StatCard
                       label="Avg Rating"
                       value={myProfile.avgMatchRating ? myProfile.avgMatchRating.toFixed(2) : '—'}
                       caption="Average match rating"
+                      accent="dark"
                     />
                     <StatCard
                       label="Win Rate"
                       value={`${getWinRate(myProfile).toFixed(1)}%`}
                       caption="Matches won"
+                      accent="green"
                     />
                     <StatCard
-                      label="GPG Ratio"
+                      label="Goals / Match"
                       value={getGoalRatio(myProfile).toFixed(2)}
-                      caption="Goals per game"
+                      caption="Scoring consistency"
+                      accent="red"
                     />
                     <StatCard
-                      label="Goals Scored"
-                      value={String(myProfile.goalsScored)}
-                      caption="Total goals"
+                      label="Points"
+                      value={String(getPointsFromResults(myProfile))}
+                      caption="From wins and draws"
+                      accent="blue"
                     />
                   </div>
 
@@ -561,8 +747,39 @@ export default function MyStatsPage() {
                     <StatCard
                       label="Unbeaten"
                       value={`${getUnbeatenRate(myProfile).toFixed(1)}%`}
-                      caption="Not lost"
+                      caption="Matches not lost"
                     />
+                  </div>
+
+                  <div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
+                          Performance Shape
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-gray-600">
+                          A simple breakdown of how your results are trending.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      <ProgressMiniBar
+                        label="Winning strength"
+                        value={Number(getWinRate(myProfile).toFixed(1))}
+                        colorClass="bg-emerald-500"
+                      />
+                      <ProgressMiniBar
+                        label="Unbeaten control"
+                        value={Number(getUnbeatenRate(myProfile).toFixed(1))}
+                        colorClass="bg-blue-500"
+                      />
+                      <ProgressMiniBar
+                        label="Scoring output"
+                        value={Math.min(100, Number((getGoalRatio(myProfile) * 100).toFixed(1)))}
+                        colorClass="bg-red-500"
+                      />
+                    </div>
                   </div>
                 </SectionCard>
               </div>
@@ -572,35 +789,39 @@ export default function MyStatsPage() {
               <div className="space-y-4">
                 <SectionCard
                   title="Ratings"
-                  subtitle="Focused only on rating metrics and recent rated matches."
+                  subtitle="A clean view of how your match performances are being scored."
                 >
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <StatCard
                       label="Avg Rating"
                       value={myProfile.avgMatchRating ? myProfile.avgMatchRating.toFixed(2) : '—'}
                       caption="Average match rating"
+                      accent="dark"
                     />
                     <StatCard
                       label="Latest"
                       value={myProfile.latestMatchRating ? myProfile.latestMatchRating.toFixed(1) : '—'}
                       caption="Most recent match"
+                      accent="blue"
                     />
                     <StatCard
                       label="OVR"
                       value={String(myProfile.ovr)}
                       caption="Overall player value"
+                      accent="red"
                     />
                     <StatCard
                       label="Form"
                       value={myProfile.formLabel}
                       caption="Current player tier"
+                      accent="green"
                     />
                   </div>
                 </SectionCard>
 
                 <SectionCard
-                  title="Match Based Rating"
-                  subtitle="Ratings based on individual match performances."
+                  title="Match Ratings"
+                  subtitle="Every rated performance, with result and goals shown together."
                 >
                   <MatchRatingList ratings={myProfile.matchRatings} />
                 </SectionCard>
@@ -611,7 +832,7 @@ export default function MyStatsPage() {
               <div className="space-y-4">
                 <SectionCard
                   title="Match Results"
-                  subtitle="Outcome breakdown and match-derived performance stats."
+                  subtitle="Outcome breakdown and match-derived contribution."
                 >
                   <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
                     <div className="flex items-center justify-between gap-3">
@@ -620,7 +841,7 @@ export default function MyStatsPage() {
                           Results Profile
                         </p>
                         <p className="mt-1 text-sm font-semibold text-gray-600">
-                          {overallWinRate} win rate
+                          {getWinRate(myProfile).toFixed(1)}% personal win rate
                         </p>
                       </div>
                       <p className="text-xs font-bold text-gray-400">
@@ -657,39 +878,44 @@ export default function MyStatsPage() {
                       label="Matches Won"
                       value={String(myProfile.matchesWon)}
                       caption="Total wins"
+                      accent="green"
                     />
                     <StatCard
                       label="Matches Lost"
                       value={String(myProfile.matchesLost)}
                       caption="Total losses"
+                      accent="red"
                     />
                     <StatCard
                       label="Matches Drawn"
                       value={String(myProfile.matchesDrawn)}
                       caption="Total draws"
+                      accent="blue"
                     />
                     <StatCard
                       label="Points"
                       value={String(getPointsFromResults(myProfile))}
                       caption="From wins and draws"
+                      accent="dark"
                     />
                   </div>
                 </SectionCard>
 
                 <SectionCard
                   title="Scoring Impact"
-                  subtitle="Goals and goal-based contribution."
+                  subtitle="Goal output, consistency, and overall profile context."
                 >
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <StatCard
                       label="Goals Scored"
                       value={String(myProfile.goalsScored)}
-                      caption="All matches"
+                      caption="Across all matches"
+                      accent="red"
                     />
                     <StatCard
-                      label="GPG Ratio"
+                      label="Goals / Match"
                       value={getGoalRatio(myProfile).toFixed(2)}
-                      caption="Goals per game"
+                      caption="Scoring frequency"
                     />
                     <StatCard
                       label="Goal Points"
@@ -700,6 +926,7 @@ export default function MyStatsPage() {
                       label="Unbeaten"
                       value={`${getUnbeatenRate(myProfile).toFixed(1)}%`}
                       caption="Matches not lost"
+                      accent="blue"
                     />
                   </div>
 
@@ -744,7 +971,7 @@ export default function MyStatsPage() {
                 {guestProfiles.length > 0 ? (
                   <SectionCard
                     title="Guest Profiles"
-                    subtitle="Linked guest players and their ratings."
+                    subtitle="Linked guest players and their enriched performance view."
                   >
                     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                       {guestProfiles.map((player) => (
