@@ -3,388 +3,24 @@
 import { useAuth } from '@/context/AuthContext';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { db } from '@/lib/firebase';
+import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
 import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  Timestamp,
-} from 'firebase/firestore';
-
-type Position = 'GK' | 'DEF' | 'MID' | 'FORWARD';
-type StatsTab = 'overview' | 'ratings' | 'matches' | 'guests';
-
-interface PlayerStat {
-  playerId: string;
-  playerName: string;
-  matchesPlayed: number;
-  matchesWon: number;
-  matchesDrawn: number;
-  matchesLost: number;
-  goalsScored: number;
-}
-
-interface GuestProfile {
-  guestId: string;
-  guestName?: string;
-  fullName?: string;
-  jerseyNumber?: number | null;
-  position: Position;
-}
-
-interface UserProfile {
-  userId: string;
-  email?: string;
-  fullName: string;
-  jerseyNumber?: number | null;
-  position: Position;
-  guestProfiles?: GuestProfile[];
-}
-
-interface PlayerStatCard extends PlayerStat {
-  roleLabel: string;
-  position?: Position;
-  jerseyNumber?: number | null;
-}
-
-interface Player {
-  playerId: string;
-  playerName: string;
-  playerType?: string;
-}
-
-interface Team {
-  teamId: string;
-  teamName: string;
-  players: Player[];
-}
-
-interface GoalScorer {
-  teamId: string;
-  playerId: string;
-  playerName: string;
-  goals: number;
-}
-
-interface MatchResult {
-  scores: Record<string, number>;
-  goalScorers: GoalScorer[];
-  winner: string | null;
-  savedAt: Timestamp | null;
-}
-
-interface MatchDetail {
-  id: string;
-  eventTitle: string;
-  matchNumber: number;
-  createdAt: Timestamp;
-  teams: Team[];
-  result: MatchResult | null;
-}
-
-interface MatchRatingEntry {
-  matchId: string;
-  eventTitle: string;
-  matchNumber: number;
-  date: Date | null;
-  resultLabel: 'Win' | 'Draw' | 'Loss';
-  goals: number;
-  rating: number;
-  streakBonusApplied: boolean;
-}
-
-interface EnrichedPlayerCard extends PlayerStatCard {
-  matchRatings: MatchRatingEntry[];
-  avgMatchRating: number;
-  latestMatchRating: number | null;
-  ovr: number;
-  pointsFromGoals: number;
-  formLabel: string;
-  insight: string;
-}
-
-function cn(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(' ');
-}
-
-function getWinRate(player: PlayerStat) {
-  if (!player.matchesPlayed) return 0;
-  return (player.matchesWon / player.matchesPlayed) * 100;
-}
-
-function getGoalRatio(player: PlayerStat) {
-  if (!player.matchesPlayed) return 0;
-  return player.goalsScored / player.matchesPlayed;
-}
-
-function getUnbeatenRate(player: PlayerStat) {
-  if (!player.matchesPlayed) return 0;
-  return ((player.matchesWon + player.matchesDrawn) / player.matchesPlayed) * 100;
-}
-
-function getPointsFromGoals(goals: number) {
-  return Number((goals * 0.6).toFixed(1));
-}
-
-function getPointsFromResults(player: PlayerStat) {
-  return player.matchesWon * 3 + player.matchesDrawn;
-}
-
-function getOVR(avgRating: number, player: PlayerStatCard) {
-  if (!player.matchesPlayed) return 0;
-
-  const winRate = getWinRate(player);
-  const goalRatio = Math.min(getGoalRatio(player), 2);
-  const experience = Math.min(player.matchesPlayed / 15, 1) * 100;
-
-  const score =
-    avgRating * 7.2 +
-    winRate * 0.12 +
-    goalRatio * 8 +
-    experience * 0.08;
-
-  return Math.max(0, Math.min(99, Math.round(score)));
-}
-
-function getOVRLabel(ovr: number) {
-  if (ovr >= 88) return 'Elite';
-  if (ovr >= 75) return 'Strong';
-  if (ovr >= 60) return 'Solid';
-  return 'Developing';
-}
-
-function getPositionTone(position?: Position) {
-  switch (position) {
-    case 'GK':
-      return 'bg-yellow-50 text-yellow-700 border-yellow-200';
-    case 'DEF':
-      return 'bg-sky-50 text-sky-700 border-sky-200';
-    case 'MID':
-      return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-    case 'FORWARD':
-      return 'bg-rose-50 text-rose-700 border-rose-200';
-    default:
-      return 'bg-gray-50 text-gray-700 border-gray-200';
-  }
-}
-
-function getInitials(name: string) {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('');
-}
-
-function getRatingTone(rating: number) {
-  if (rating >= 8.5) return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-  if (rating >= 7.0) return 'bg-blue-50 text-blue-700 border-blue-200';
-  if (rating >= 6.0) return 'bg-amber-50 text-amber-700 border-amber-200';
-  return 'bg-red-50 text-red-700 border-red-200';
-}
-
-function getPlayerInsight(player: EnrichedPlayerCard) {
-  if (!player.matchesPlayed) return 'No recorded matches yet.';
-  if (player.avgMatchRating >= 8.2 && getGoalRatio(player) >= 1) {
-    return 'High-impact performances with strong scoring output.';
-  }
-  if (player.avgMatchRating >= 7.5 && getWinRate(player) >= 50) {
-    return 'Reliable match influence with solid results.';
-  }
-  if (player.latestMatchRating && player.latestMatchRating >= 8) {
-    return 'Recent form is trending upward.';
-  }
-  if (getGoalRatio(player) >= 0.8) {
-    return 'Scoring efficiency is driving the profile.';
-  }
-  return 'Steady development across recent matches.';
-}
-
-function getTeamScore(result: MatchResult, teamId: string) {
-  return Number(result.scores?.[teamId] ?? 0);
-}
-
-function hasGoalScoringStreak(previousGoalMatches: boolean[], currentGoals: number) {
-  if (currentGoals <= 0) return false;
-  if (previousGoalMatches.length === 0) return false;
-  return previousGoalMatches[previousGoalMatches.length - 1] === true;
-}
-
-function getCurrentMonthMatchesPlayedBefore(
-  previousPlayedDates: Date[],
-  currentDate: Date | null
-) {
-  if (!currentDate) return 0;
-
-  const month = currentDate.getMonth();
-  const year = currentDate.getFullYear();
-
-  return previousPlayedDates.filter(
-    (date) => date.getMonth() === month && date.getFullYear() === year
-  ).length;
-}
-
-function getPreviousFiveWinRate(previousResults: Array<'Win' | 'Draw' | 'Loss'>) {
-  if (previousResults.length === 0) return 0;
-  const lastFive = previousResults.slice(-5);
-  const wins = lastFive.filter((result) => result === 'Win').length;
-  return (wins / lastFive.length) * 100;
-}
-
-function getAttackerPositiveGoalBonus(goals: number) {
-  let bonus = 0;
-  for (let i = 1; i <= goals; i += 1) {
-    if (i === 1) bonus += 0.6;
-    else if (i === 2) bonus += 0.8;
-    else bonus += 1;
-  }
-  return bonus;
-}
-
-function getAttackerLossGoalBonus(goals: number) {
-  let bonus = 0;
-  for (let i = 1; i <= goals; i += 1) {
-    if (i === 1) bonus += 0.6;
-    else if (i === 2) bonus += 0.9;
-    else if (i === 3) bonus += 1.3;
-    else bonus += 1.8;
-  }
-  return bonus;
-}
-
-function getDefenderGoalBonus(goals: number) {
-  if (goals <= 0) return 0;
-  let bonus = 1.0;
-  if (goals >= 2) {
-    bonus += (goals - 1) * 0.6;
-  }
-  return bonus;
-}
-
-function calculateMatchRatingsForPlayer(
-  playerId: string,
-  position: Position | undefined,
-  matches: MatchDetail[]
-): MatchRatingEntry[] {
-  const sortedMatches = [...matches]
-    .filter((match) => match.result && match.result.savedAt)
-    .sort((a, b) => {
-      const aTime = a.createdAt?.toDate?.()?.getTime?.() ?? 0;
-      const bTime = b.createdAt?.toDate?.()?.getTime?.() ?? 0;
-      return aTime - bTime;
-    });
-
-  const ratings: MatchRatingEntry[] = [];
-  const previousResults: Array<'Win' | 'Draw' | 'Loss'> = [];
-  const previousPlayedDates: Date[] = [];
-  const previousGoalMatches: boolean[] = [];
-
-  for (const match of sortedMatches) {
-    const result = match.result;
-    if (!result) continue;
-
-    const team = match.teams.find((team) =>
-      team.players.some((p) => p.playerId === playerId)
-    );
-
-    if (!team) continue;
-
-    const currentDate = match.createdAt?.toDate?.() ?? null;
-    const playerGoals =
-      result.goalScorers
-        ?.filter((g) => g.playerId === playerId)
-        .reduce((sum, g) => sum + (g.goals ?? 0), 0) ?? 0;
-
-    const isDraw = result.winner === null;
-    const isWin = result.winner === team.teamId;
-    const isLoss = !isDraw && !isWin;
-
-    let resultLabel: 'Win' | 'Draw' | 'Loss' = 'Draw';
-    if (isWin) resultLabel = 'Win';
-    if (isLoss) resultLabel = 'Loss';
-
-    let rating = 6;
-    let streakBonusApplied = false;
-
-    if (isLoss) rating -= 1;
-    if (isDraw) rating += 1;
-    if (isWin) rating += 2;
-
-    const previousFiveWinRate = getPreviousFiveWinRate(previousResults);
-    const currentMonthMatchesBefore = getCurrentMonthMatchesPlayedBefore(
-      previousPlayedDates,
-      currentDate
-    );
-
-    const qualifiesForRecentFormBonus =
-      currentMonthMatchesBefore >= 3 && previousResults.length > 0 && previousFiveWinRate > 50;
-
-    if (qualifiesForRecentFormBonus) {
-      rating += 0.6;
-    }
-
-    const hasScoringStreak = hasGoalScoringStreak(previousGoalMatches, playerGoals);
-    if (hasScoringStreak) {
-      rating += 1;
-      streakBonusApplied = true;
-    }
-
-    const isDefensiveRole = position === 'DEF' || position === 'GK';
-    const isAttackingRole = position === 'MID' || position === 'FORWARD';
-
-    if (isDefensiveRole && isWin) {
-      rating += 1.2;
-    }
-
-    if (isDefensiveRole && playerGoals > 0) {
-      rating += getDefenderGoalBonus(playerGoals);
-    }
-
-    if (isAttackingRole && (isWin || isDraw) && playerGoals > 0) {
-      rating += getAttackerPositiveGoalBonus(playerGoals);
-    }
-
-    if (isAttackingRole && isLoss && playerGoals > 0) {
-      rating += getAttackerLossGoalBonus(playerGoals);
-
-      if (playerGoals >= 3) {
-        rating = Math.max(rating, 8.5);
-      } else if (playerGoals === 2) {
-        rating = Math.max(rating, 7.85);
-      }
-    }
-
-    if (position === 'GK') {
-      const opponent = match.teams.find((t) => t.teamId !== team.teamId);
-      const opponentScore = opponent ? getTeamScore(result, opponent.teamId) : 0;
-      const hasCleanSheet = opponentScore === 0;
-
-      if (hasCleanSheet) {
-        rating += 2;
-      }
-    }
-
-    rating = Math.max(0, Math.min(10, Number(rating.toFixed(2))));
-
-    ratings.push({
-      matchId: match.id,
-      eventTitle: match.eventTitle,
-      matchNumber: match.matchNumber,
-      date: currentDate,
-      resultLabel,
-      goals: playerGoals,
-      rating,
-      streakBonusApplied,
-    });
-
-    previousResults.push(resultLabel);
-    if (currentDate) previousPlayedDates.push(currentDate);
-    previousGoalMatches.push(playerGoals > 0);
-  }
-
-  return ratings.reverse();
-}
+  type EnrichedPlayerCard,
+  type MatchDetail,
+  type StatsTab,
+  type UserProfile,
+  cn,
+  enrichPlayerStats,
+  formatOverallWinRate,
+  getGoalRatio,
+  getInitials,
+  getPointsFromResults,
+  getPositionTone,
+  getRatingTone,
+  getStatsTotals,
+  getUnbeatenRate,
+  getWinRate,
+} from '@/lib/stats';
 
 function AnimatedNumber({
   value,
@@ -407,7 +43,9 @@ function AnimatedNumber({
       const eased = 1 - Math.pow(1 - progress, 3);
       setDisplay(value * eased);
 
-      if (progress < 1) frameRef.current = requestAnimationFrame(animate);
+      if (progress < 1) {
+        frameRef.current = requestAnimationFrame(animate);
+      }
     };
 
     frameRef.current = requestAnimationFrame(animate);
@@ -483,6 +121,7 @@ function TabBar({
         <div className="grid grid-cols-4 gap-1">
           {tabs.map((tab) => {
             const active = activeTab === tab.key;
+
             return (
               <button
                 key={tab.key}
@@ -610,7 +249,10 @@ function ResultBar({
   losses: number;
 }) {
   const total = wins + draws + losses;
-  if (!total) return <div className="h-2 w-full rounded-full bg-gray-100" />;
+
+  if (!total) {
+    return <div className="h-2 w-full rounded-full bg-gray-100" />;
+  }
 
   return (
     <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
@@ -623,7 +265,11 @@ function ResultBar({
   );
 }
 
-function MatchRatingList({ ratings }: { ratings: MatchRatingEntry[] }) {
+function MatchRatingList({
+  ratings,
+}: {
+  ratings: EnrichedPlayerCard['matchRatings'];
+}) {
   if (ratings.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-4 text-center">
@@ -759,16 +405,13 @@ export default function MyStatsPage() {
         const profileSnap = await getDoc(profileRef);
         const profile = profileSnap.exists() ? (profileSnap.data() as UserProfile) : null;
 
-        const pick = (snap: Awaited<ReturnType<typeof getDoc>>, key: string) => {
-          if (!snap.exists()) return 0;
-          const data = snap.data() as Record<string, any> | undefined;
-          return data?.[key] ?? 0;
-        };
-
         const myStatsRef = doc(db, 'playerStats', user.uid);
         const myStatsSnap = await getDoc(myStatsRef);
+        const myStatsData = myStatsSnap.exists()
+          ? (myStatsSnap.data() as Record<string, unknown>)
+          : null;
 
-        const basePlayers: PlayerStatCard[] = [
+        const basePlayers = [
           {
             playerId: user.uid,
             playerName:
@@ -776,11 +419,11 @@ export default function MyStatsPage() {
               user.displayName ||
               user.email?.split('@')[0] ||
               'Player',
-            matchesPlayed: pick(myStatsSnap, 'matchesPlayed'),
-            matchesWon: pick(myStatsSnap, 'matchesWon'),
-            matchesDrawn: pick(myStatsSnap, 'matchesDrawn'),
-            matchesLost: pick(myStatsSnap, 'matchesLost'),
-            goalsScored: pick(myStatsSnap, 'goalsScored'),
+            matchesPlayed: Number(myStatsData?.matchesPlayed ?? 0),
+            matchesWon: Number(myStatsData?.matchesWon ?? 0),
+            matchesDrawn: Number(myStatsData?.matchesDrawn ?? 0),
+            matchesLost: Number(myStatsData?.matchesLost ?? 0),
+            goalsScored: Number(myStatsData?.goalsScored ?? 0),
             roleLabel: 'My Stats',
             position: profile?.position,
             jerseyNumber: profile?.jerseyNumber ?? null,
@@ -792,19 +435,22 @@ export default function MyStatsPage() {
         const guestEntries = await Promise.all(
           guests.map(async (guest) => {
             const guestSnap = await getDoc(doc(db, 'playerStats', guest.guestId));
+            const guestStatsData = guestSnap.exists()
+              ? (guestSnap.data() as Record<string, unknown>)
+              : null;
 
             return {
               playerId: guest.guestId,
               playerName: guest.fullName || guest.guestName || 'Guest Player',
-              matchesPlayed: pick(guestSnap, 'matchesPlayed'),
-              matchesWon: pick(guestSnap, 'matchesWon'),
-              matchesDrawn: pick(guestSnap, 'matchesDrawn'),
-              matchesLost: pick(guestSnap, 'matchesLost'),
-              goalsScored: pick(guestSnap, 'goalsScored'),
+              matchesPlayed: Number(guestStatsData?.matchesPlayed ?? 0),
+              matchesWon: Number(guestStatsData?.matchesWon ?? 0),
+              matchesDrawn: Number(guestStatsData?.matchesDrawn ?? 0),
+              matchesLost: Number(guestStatsData?.matchesLost ?? 0),
+              goalsScored: Number(guestStatsData?.goalsScored ?? 0),
               roleLabel: 'Linked Guest',
               position: guest.position,
               jerseyNumber: guest.jerseyNumber ?? null,
-            } as PlayerStatCard;
+            };
           })
         );
 
@@ -816,43 +462,7 @@ export default function MyStatsPage() {
           ...(docSnap.data() as Omit<MatchDetail, 'id'>),
         }));
 
-        const enrichedPlayers: EnrichedPlayerCard[] = allBasePlayers.map((player) => {
-          const matchRatings = calculateMatchRatingsForPlayer(
-            player.playerId,
-            player.position,
-            allMatches
-          );
-
-          const avgMatchRating =
-            matchRatings.length > 0
-              ? Number(
-                  (
-                    matchRatings.reduce((sum, entry) => sum + entry.rating, 0) /
-                    matchRatings.length
-                  ).toFixed(2)
-                )
-              : 0;
-
-          const latestMatchRating =
-            matchRatings.length > 0 ? matchRatings[0].rating : null;
-
-          const ovr = getOVR(avgMatchRating, player);
-
-          const enriched: EnrichedPlayerCard = {
-            ...player,
-            matchRatings,
-            avgMatchRating,
-            latestMatchRating,
-            ovr,
-            pointsFromGoals: getPointsFromGoals(player.goalsScored),
-            formLabel: getOVRLabel(ovr),
-            insight: '',
-          };
-
-          enriched.insight = getPlayerInsight(enriched);
-          return enriched;
-        });
-
+        const enrichedPlayers = enrichPlayerStats(allBasePlayers, allMatches);
         setStats(enrichedPlayers);
       } catch (error) {
         console.error('Failed to load my stats:', error);
@@ -866,22 +476,8 @@ export default function MyStatsPage() {
     }
   }, [user, role, loading]);
 
-  const totals = useMemo(() => {
-    return stats.reduce(
-      (acc, player) => {
-        acc.matches += player.matchesPlayed;
-        acc.wins += player.matchesWon;
-        acc.draws += player.matchesDrawn;
-        acc.losses += player.matchesLost;
-        acc.goals += player.goalsScored;
-        return acc;
-      },
-      { matches: 0, wins: 0, draws: 0, losses: 0, goals: 0 }
-    );
-  }, [stats]);
-
-  const overallWinRate =
-    totals.matches > 0 ? `${((totals.wins / totals.matches) * 100).toFixed(1)}%` : '—';
+  const totals = useMemo(() => getStatsTotals(stats), [stats]);
+  const overallWinRate = useMemo(() => formatOverallWinRate(stats), [stats]);
 
   const myProfile = stats[0];
   const guestProfiles = stats.slice(1);
@@ -938,6 +534,34 @@ export default function MyStatsPage() {
                       label="Goals Scored"
                       value={String(myProfile.goalsScored)}
                       caption="Total goals"
+                    />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                    <StatCard
+                      label="Matches"
+                      value={String(myProfile.matchesPlayed)}
+                      caption="Total appearances"
+                    />
+                    <StatCard
+                      label="Wins"
+                      value={String(myProfile.matchesWon)}
+                      caption="Matches won"
+                    />
+                    <StatCard
+                      label="Draws"
+                      value={String(myProfile.matchesDrawn)}
+                      caption="Matches drawn"
+                    />
+                    <StatCard
+                      label="Losses"
+                      value={String(myProfile.matchesLost)}
+                      caption="Matches lost"
+                    />
+                    <StatCard
+                      label="Unbeaten"
+                      value={`${getUnbeatenRate(myProfile).toFixed(1)}%`}
+                      caption="Not lost"
                     />
                   </div>
                 </SectionCard>
@@ -1077,6 +701,39 @@ export default function MyStatsPage() {
                       value={`${getUnbeatenRate(myProfile).toFixed(1)}%`}
                       caption="Matches not lost"
                     />
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-gray-400">
+                      Team Snapshot
+                    </p>
+                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                      <StatCard
+                        label="Profiles"
+                        value={String(stats.length)}
+                        caption="You + guests"
+                      />
+                      <StatCard
+                        label="All Matches"
+                        value={String(totals.matches)}
+                        caption="Across profiles"
+                      />
+                      <StatCard
+                        label="All Wins"
+                        value={String(totals.wins)}
+                        caption="Combined"
+                      />
+                      <StatCard
+                        label="All Goals"
+                        value={String(totals.goals)}
+                        caption="Combined output"
+                      />
+                      <StatCard
+                        label="All Win Rate"
+                        value={overallWinRate}
+                        caption="Combined record"
+                      />
+                    </div>
                   </div>
                 </SectionCard>
               </div>
