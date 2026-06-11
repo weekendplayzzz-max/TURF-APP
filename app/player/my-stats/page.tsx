@@ -262,7 +262,7 @@ function HeroCard({
 
           <div className="rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 text-right shadow-sm backdrop-blur">
             <p className="text-3xl font-black leading-none tabular-nums text-white sm:text-[34px]">
-              {player.ovr > 0 ? <AnimatedNumber value={player.ovr} /> : '—'}
+              {player.ovr !== null && player.ovr > 0 ? <AnimatedNumber value={player.ovr} /> : '—'}
             </p>
             <p className="mt-1 text-[10px] font-black uppercase tracking-[0.22em] text-white/50">
               OVR
