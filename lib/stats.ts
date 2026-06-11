@@ -88,7 +88,7 @@ export interface EnrichedPlayerCard extends PlayerStatCard {
   matchRatings: MatchRatingEntry[];
   avgMatchRating: number;
   latestMatchRating: number | null;
-  ovr: number;
+  ovr: number | null;
   pointsFromGoals: number;
   formLabel: string;
   insight: string;
@@ -227,6 +227,24 @@ export function getPreviousFiveWinRate(previousResults: Array<'Win' | 'Draw' | '
   return (wins / lastFive.length) * 100;
 }
 
+// Counts consecutive wins looking backwards through previousResults
+function getCurrentWinStreak(previousResults: Array<'Win' | 'Draw' | 'Loss'>): number {
+  let streak = 0;
+  for (let i = previousResults.length - 1; i >= 0; i--) {
+    if (previousResults[i] === 'Win') streak += 1;
+    else break;
+  }
+  return streak;
+}
+
+// streak 1 → +0.5, streak 2 → +1.0, streak 3 → +1.2, streak 4 → +1.4, ...
+function getWinStreakBonus(streak: number): number {
+  if (streak <= 0) return 0;
+  if (streak === 1) return 0.5;
+  if (streak === 2) return 1.0;
+  return Number((1.0 + (streak - 2) * 0.2).toFixed(2));
+}
+
 export function getAttackerPositiveGoalBonus(goals: number) {
   let bonus = 0;
   for (let i = 1; i <= goals; i += 1) {
@@ -303,7 +321,7 @@ function getRecentFormScore(matchRatings: MatchRatingEntry[]) {
   });
 
   const weightedAverage = totalWeight ? weightedSum / totalWeight : 0;
-  return normalize(weightedAverage, 5.5, 9.2);
+  return normalize(weightedAverage, 5.5, 9.5);
 }
 
 function getConsistencyScore(matchRatings: MatchRatingEntry[]) {
@@ -320,32 +338,42 @@ function getConsistencyScore(matchRatings: MatchRatingEntry[]) {
 
 function getExperienceFactor(matchesPlayed: number) {
   if (matchesPlayed <= 0) return 0;
-  if (matchesPlayed === 1) return 0.12;
-  if (matchesPlayed === 2) return 0.17;
-  if (matchesPlayed === 3) return 0.23;
-  if (matchesPlayed <= 5) return 0.32;
-  if (matchesPlayed <= 8) return 0.44;
-  if (matchesPlayed <= 12) return 0.56;
-  if (matchesPlayed <= 18) return 0.68;
-  if (matchesPlayed <= 25) return 0.79;
-  if (matchesPlayed <= 35) return 0.88;
-  if (matchesPlayed <= 50) return 0.95;
+  if (matchesPlayed === 1) return 0.15;
+  if (matchesPlayed === 2) return 0.22;
+  if (matchesPlayed === 3) return 0.28;
+  if (matchesPlayed === 4) return 0.34;
+  if (matchesPlayed === 5) return 0.40;
+  if (matchesPlayed === 6) return 0.46;
+  if (matchesPlayed <= 8) return 0.50;
+  if (matchesPlayed <= 10) return 0.57;
+  if (matchesPlayed <= 12) return 0.63;
+  if (matchesPlayed <= 15) return 0.70;
+  if (matchesPlayed <= 18) return 0.76;
+  if (matchesPlayed <= 22) return 0.82;
+  if (matchesPlayed <= 27) return 0.87;
+  if (matchesPlayed <= 35) return 0.92;
+  if (matchesPlayed <= 50) return 0.96;
   return 1;
 }
 
 function getExperienceCap(matchesPlayed: number) {
-  if (matchesPlayed <= 0) return 40;
-  if (matchesPlayed === 1) return 46;
-  if (matchesPlayed === 2) return 49;
-  if (matchesPlayed === 3) return 53;
-  if (matchesPlayed <= 5) return 58;
-  if (matchesPlayed <= 8) return 64;
-  if (matchesPlayed <= 12) return 70;
-  if (matchesPlayed <= 18) return 76;
-  if (matchesPlayed <= 25) return 82;
-  if (matchesPlayed <= 35) return 87;
-  if (matchesPlayed <= 50) return 91;
-  return 94;
+  if (matchesPlayed <= 0) return 0;
+  if (matchesPlayed === 1) return 44;
+  if (matchesPlayed === 2) return 47;
+  if (matchesPlayed === 3) return 50;
+  if (matchesPlayed === 4) return 53;
+  if (matchesPlayed === 5) return 56;
+  if (matchesPlayed === 6) return 59;
+  if (matchesPlayed <= 8) return 63;
+  if (matchesPlayed <= 10) return 67;
+  if (matchesPlayed <= 12) return 71;
+  if (matchesPlayed <= 15) return 74;
+  if (matchesPlayed <= 18) return 78;
+  if (matchesPlayed <= 22) return 82;
+  if (matchesPlayed <= 27) return 85;
+  if (matchesPlayed <= 35) return 89;
+  if (matchesPlayed <= 50) return 93;
+  return 96;
 }
 
 function getGoalContributionScore(player: PlayerStatCard) {
@@ -568,29 +596,9 @@ function getDefensiveAnchorScore(player: PlayerStatCard, matches: MatchDetail[])
   );
 }
 
-function getSmallSamplePenalty(player: PlayerStatCard, avgRating: number) {
-  const matchesPlayed = player.matchesPlayed;
-  const goalRatio = getGoalRatio(player);
-
-  let penalty = 0;
-
-  if (matchesPlayed < 10) {
-    penalty += (10 - matchesPlayed) * 0.55;
-  }
-
-  if (matchesPlayed < 6 && avgRating >= 8.5) {
-    penalty += 2.2;
-  }
-
-  if (
-    matchesPlayed < 6 &&
-    (player.position === 'FORWARD' || player.position === 'MID') &&
-    goalRatio >= 1.5
-  ) {
-    penalty += 1.8;
-  }
-
-  return penalty;
+function getSmallSamplePenalty(matchesPlayed: number) {
+  if (matchesPlayed >= 10) return 0;
+  return (10 - matchesPlayed) * 0.30;
 }
 
 function getRoleBonus(
@@ -625,8 +633,9 @@ export function getOVR(
   player: PlayerStatCard,
   allPlayers: PlayerStatCard[] = [],
   matches: MatchDetail[] = []
-) {
-  if (!player.matchesPlayed) return 0;
+): number | null {
+  // 0 matches → no OVR, display as '—'
+  if (!player.matchesPlayed) return null;
 
   const BASE_OVR = 40;
   const matchesPlayed = player.matchesPlayed;
@@ -693,7 +702,7 @@ export function getOVR(
   const experienceAdjustedGrowth = rawGrowth * experienceFactor;
 
   let ovr = BASE_OVR + experienceAdjustedGrowth;
-  ovr -= getSmallSamplePenalty(player, avgRating);
+  ovr -= getSmallSamplePenalty(matchesPlayed);
   ovr += getRoleBonus(player, topScorerImpact, defensiveAnchor);
 
   ovr = Math.min(ovr, experienceCap);
@@ -702,7 +711,8 @@ export function getOVR(
   return ovr;
 }
 
-export function getOVRLabel(ovr: number) {
+export function getOVRLabel(ovr: number | null): string {
+  if (ovr === null) return '—';
   if (ovr >= 90) return 'Elite';
   if (ovr >= 80) return 'Strong';
   if (ovr >= 68) return 'Solid';
@@ -760,6 +770,7 @@ export function calculateMatchRatingsForPlayer(
   const previousResults: Array<'Win' | 'Draw' | 'Loss'> = [];
   const previousGoalMatches: boolean[] = [];
   const cumulativeGoalTotals = new Map<string, number>();
+  let isFirstMatchForPlayer = true;
 
   for (const match of sortedMatches) {
     const result = match.result;
@@ -795,6 +806,7 @@ export function calculateMatchRatingsForPlayer(
     if (isWin) resultLabel = 'Win';
     if (isLoss) resultLabel = 'Loss';
 
+    // ── Step 1: Universal result base (all positions) ──────────────────────
     let rating = 6;
     let streakBonusApplied = false;
     let winStreakBonusApplied = false;
@@ -807,15 +819,15 @@ export function calculateMatchRatingsForPlayer(
     const isDefensiveRole = position === 'DEF' || position === 'GK';
     const isAttackingRole = position === 'MID' || position === 'FORWARD';
 
-    const hasScoringStreak = hasGoalScoringStreak(previousGoalMatches, playerGoals);
-    const hadPreviousTwoWinStreak = hasPreviousWinStreak(previousResults, 2);
-
-    if (topScorerIdsBeforeMatch.has(playerId) && playerGoals > 0) {
-      rating += 0.8;
-      topScorerBonusApplied = true;
-    }
-
+    // ── Step 2: Attacking role logic (MID / FORWARD) ───────────────────────
     if (isAttackingRole) {
+      const hasScoringStreak = hasGoalScoringStreak(previousGoalMatches, playerGoals);
+
+      if (topScorerIdsBeforeMatch.has(playerId) && playerGoals > 0) {
+        rating += 0.8;
+        topScorerBonusApplied = true;
+      }
+
       if (isWin || isDraw) {
         rating += getAttackerPositiveGoalBonus(playerGoals);
 
@@ -845,47 +857,71 @@ export function calculateMatchRatingsForPlayer(
       }
     }
 
+    // ── Step 3: Defensive role logic (DEF / GK) ────────────────────────────
     if (isDefensiveRole) {
       if (isWin) {
-        rating += 1.2;
-
-        if (position === 'DEF') {
-          rating += 1;
+        // First match win bonus — applied once on the player's very first match
+        if (isFirstMatchForPlayer) {
+          rating += 0.5;
         }
 
-        if (hadPreviousTwoWinStreak) {
-          rating += 0.3;
+        // DEF/GK position bonus on every win
+        rating += 1.0;
+
+        // GK gets an additional +1 on top of the position bonus
+        if (position === 'GK') {
+          rating += 1.0;
+        }
+
+        // Win streak bonus — counts consecutive wins BEFORE this match
+        const streak = getCurrentWinStreak(previousResults);
+        if (streak >= 1) {
+          const streakBonus = getWinStreakBonus(streak);
+          rating += streakBonus;
           winStreakBonusApplied = true;
         }
 
+        // DEF scores a goal in a win → direct 10 (rare, exceptional)
+        if (position === 'DEF' && playerGoals > 0) {
+          rating = 10;
+        }
+
+        // GK scores in a win → direct 10
+        if (position === 'GK' && playerGoals > 0) {
+          rating = 10;
+        }
+      }
+
+      if (isDraw) {
+        // DEF or GK scores in a draw → exceptional, direct 10
         if (playerGoals > 0) {
           rating = 10;
         }
       }
 
-      if (isLoss) {
-        if (hadPreviousTwoWinStreak) {
-          rating += 0.6;
-          winStreakBonusApplied = true;
-        }
+      if (isLoss && playerGoals > 0) {
+        // Scoring despite a loss — partial credit
+        rating += playerGoals * 0.8;
+      }
 
-        if (playerGoals > 0) {
-          rating += playerGoals * 0.8;
+      // GK clean sheet bonus (win or draw only, not on a loss)
+      if (position === 'GK') {
+        const opponentTeam = teams.find((teamItem) => teamItem.teamId !== team.teamId);
+        const opponentScore = opponentTeam ? getTeamScore(result, opponentTeam.teamId) : 0;
+        const hasCleanSheet = opponentScore === 0;
+
+        if (hasCleanSheet && !isLoss) {
+          rating += 1.25;
         }
       }
 
-      if (isDraw && playerGoals > 0) {
-        rating = 10;
-      }
-    }
+      // Team efficiency bonus: team conceded strictly less than half of what they scored
+      const teamScore = getTeamScore(result, team.teamId);
+      const opponentTeam = teams.find((teamItem) => teamItem.teamId !== team.teamId);
+      const opponentScore = opponentTeam ? getTeamScore(result, opponentTeam.teamId) : 0;
 
-    if (position === 'GK') {
-      const opponent = teams.find((teamItem) => teamItem.teamId !== team.teamId);
-      const opponentScore = opponent ? getTeamScore(result, opponent.teamId) : 0;
-      const hasCleanSheet = opponentScore === 0;
-
-      if (hasCleanSheet && !isLoss) {
-        rating += 1.25;
+      if (teamScore > 0 && opponentScore < teamScore / 2) {
+        rating += 0.6;
       }
     }
 
@@ -906,6 +942,7 @@ export function calculateMatchRatingsForPlayer(
 
     previousResults.push(resultLabel);
     previousGoalMatches.push(playerGoals > 0);
+    isFirstMatchForPlayer = false;
 
     teams.forEach((teamItem) => {
       (teamItem.players ?? []).forEach((teamPlayer) => {
@@ -993,7 +1030,12 @@ export function formatOverallWinRate(players: PlayerStat[]) {
 }
 
 export function sortPlayersByOVR(players: EnrichedPlayerCard[]) {
-  return [...players].sort((a, b) => b.ovr - a.ovr);
+  return [...players].sort((a, b) => {
+    if (a.ovr === null && b.ovr === null) return 0;
+    if (a.ovr === null) return 1;
+    if (b.ovr === null) return -1;
+    return b.ovr - a.ovr;
+  });
 }
 
 export function sortPlayersByAvgRating(players: EnrichedPlayerCard[]) {
