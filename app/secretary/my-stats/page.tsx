@@ -262,7 +262,11 @@ function HeroCard({
 
           <div className="rounded-[22px] border border-white/10 bg-white/10 px-4 py-3 text-right shadow-sm backdrop-blur">
             <p className="text-3xl font-black leading-none tabular-nums text-white sm:text-[34px]">
-              {player.ovr > 0 ? <AnimatedNumber value={player.ovr} /> : '—'}
+              {player.ovr !== null && player.ovr > 0 ? (
+                <AnimatedNumber value={player.ovr} />
+              ) : (
+                '—'
+              )}
             </p>
             <p className="mt-1 text-[10px] font-black uppercase tracking-[0.22em] text-white/50">
               OVR
@@ -538,7 +542,11 @@ function GuestCompactCard({ player }: { player: EnrichedPlayerCard }) {
 
         <div className="rounded-2xl bg-gray-50 px-3 py-2 text-center">
           <p className="text-lg font-black leading-none text-gray-900 tabular-nums">
-            {player.ovr > 0 ? <AnimatedNumber value={player.ovr} /> : '—'}
+            {player.ovr !== null && player.ovr > 0 ? (
+              <AnimatedNumber value={player.ovr} />
+            ) : (
+              '—'
+            )}
           </p>
           <p className="mt-1 text-[9px] font-black uppercase tracking-[0.18em] text-gray-400">
             OVR
@@ -800,13 +808,17 @@ export default function MyStatsPage() {
                     />
                     <StatCard
                       label="Latest"
-                      value={myProfile.latestMatchRating ? myProfile.latestMatchRating.toFixed(1) : '—'}
+                      value={
+                        myProfile.latestMatchRating !== null && myProfile.latestMatchRating !== undefined
+                          ? myProfile.latestMatchRating.toFixed(1)
+                          : '—'
+                      }
                       caption="Most recent match"
                       accent="blue"
                     />
                     <StatCard
                       label="OVR"
-                      value={String(myProfile.ovr)}
+                      value={myProfile.ovr !== null ? String(myProfile.ovr) : '—'}
                       caption="Overall player value"
                       accent="red"
                     />
